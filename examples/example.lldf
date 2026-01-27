@@ -1,0 +1,26 @@
+pe "Join"
+sv "=" args(vLI"Test", s"Hello")
+pa "SendMessage" args(vLI"Test") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Default)
+end
+
+/*
+pe = Player Event
+fn = Function
+cf = Call Function
+sv = Set Variable
+pa = Player Action
+so = Select Object
+end = New Template
+
+-----------------------
+
+something"Hello" -> Simple Value with just one argument:
+
+vS"" = Variable SAVE
+vG"" = Variable GAME
+vL"" = Variable LOCAL
+vLI"" = Variable LINE
+
+s"" = String
+t"" = Styled Text
+*/

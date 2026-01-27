@@ -1,0 +1,51 @@
+import std.selections.Selections;
+import std.events.Events
+
+@Event(Events.Join)
+fn joinEvent() {
+    Selections.Default {
+        sendMessage($"<gray>Hello World");
+        funny();
+    }
+
+    // Shorthand
+    Selections.Default.sendMessage($"<green>Another Message!");
+}
+
+@OnPlayerSelection
+fn funny() {
+    sendMessage("funny");
+}
+
+// This would compile into:
+/*
+pe "Join"
+so "EventTarget" tags(26 "Event Target" "Default")
+pa "SendMessage" args(t"<gray>Hello World") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Selection)
+cf "funny"
+pa "SendMessage" args(t"<green>Another Message!") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Selection)
+end
+
+fn funny
+pa "SendMessage" args(s"funny") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Selection)
+end
+*/
+
+// First Optimization: Inline Functions
+/*
+pe "Join"
+so "EventTarget" tags(26 "Event Target" "Default")
+pa "SendMessage" args(t"<gray>Hello World") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Selection)
+pa "SendMessage" args(s"funny") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Selection)
+pa "SendMessage" args(t"<green>Another Message!") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Selection)
+end
+*/
+
+// Second Optimization: Simple Selections
+/*
+pe "Join"
+pa "SendMessage" args(t"<gray>Hello World") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Default)
+pa "SendMessage" args(s"funny") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Default)
+pa "SendMessage" args(t"<green>Another Message!") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Default)
+end
+*/
