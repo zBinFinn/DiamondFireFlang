@@ -8,6 +8,7 @@ class Tokenizer(
         '.' to TokenType.DOT,
         ',' to TokenType.COMMA,
         ';' to TokenType.SEMI,
+        ':' to TokenType.COLON,
         '(' to TokenType.LPAREN,
         ')' to TokenType.RPAREN,
         '{' to TokenType.LBRACE,
@@ -18,6 +19,7 @@ class Tokenizer(
     private val keywords = mapOf(
         "fn" to TokenType.FN,
         "val" to TokenType.VAL,
+        "mut" to TokenType.MUT,
         "with" to TokenType.WITH,
         "import" to TokenType.IMPORT,
         "package" to TokenType.PACKAGE,

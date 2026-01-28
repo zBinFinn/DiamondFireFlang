@@ -13,8 +13,19 @@ object Ast {
     data class FunctionDecl(
         val name: String,
         val annotations: List<Annotation>,
+        val parameters: List<Parameter>,
         val body: Block,
     ) : AstNode
+
+    data class Parameter(
+        val name: String,
+        val type: Type,
+        val mutable: Boolean
+    )
+
+    data class Type(
+        val identifier: String
+    )
 
     data class Block(
         val statements: List<Statement>
@@ -64,5 +75,9 @@ object Ast {
 
     data class NumberExpr(
         val value: Number
+    ) : Expr
+
+    data class IdentifierExpr(
+        val name: String,
     ) : Expr
 }

@@ -24,8 +24,14 @@ object Ir {
 
     data class Function(
         val name: String,
+        val parameters: List<Parameter>,
         val body: List<Instr>
     ) : Node
+
+    data class Parameter(
+        val name: String,
+        val mutable: Boolean
+    ) : Value
 
     sealed interface Instr
 
@@ -58,6 +64,7 @@ object Ir {
 
     data class CallFunction(
         override val actionName: String,
+        override val args: List<Value>,
     ) : SimpleAction("cf")
 
     data class SetVariableAction(

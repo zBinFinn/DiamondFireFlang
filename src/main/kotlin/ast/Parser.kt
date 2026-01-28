@@ -2,7 +2,6 @@ package com.zbinfinn.ast
 
 import com.zbinfinn.tokenizer.Token
 import com.zbinfinn.tokenizer.TokenType
-import kotlin.math.exp
 
 class Parser(
     private val tokens: List<Token>,
@@ -42,6 +41,18 @@ class Parser(
         return Ast.Program(imports, functions)
     }
 
+    private fun parseFunctionParameter(): Ast.Parameter {
+        val mutable = match(TokenType.MUT)
+        val identifier = expect(TokenType.IDENT, "Expected parameter name").lexeme
+        expect(TokenType.COLON, "Expected ':' after parameter name")
+        val type = expect(TokenType.IDENT, "Expected parameter type").lexeme
+        return Ast.Parameter(
+            identifier,
+            Ast.Type(type),
+            mutable
+        )
+    }
+
     private fun parseFunction(): Ast.FunctionDecl {
         val annotations = mutableListOf<Ast.Annotation>()
 
@@ -53,12 +64,17 @@ class Parser(
         val name = expect(TokenType.IDENT, "Expected function name").lexeme
 
         expect(TokenType.LPAREN, "Expected '(")
-        // TODO: Arguments
-        expect(TokenType.RPAREN, "Expected ')")
+        val parameters = mutableListOf<Ast.Parameter>()
+        if (peek().type != TokenType.RPAREN) {
+            do {
+                parameters.add(parseFunctionParameter())
+            } while(peek().type != TokenType.RPAREN)
+        }
+        expect(TokenType.RPAREN, "Expected ')'")
 
         val block = parseBlock()
 
-        return Ast.FunctionDecl(name, annotations, block)
+        return Ast.FunctionDecl(name, annotations, parameters, block)
     }
 
     private fun parseBlock(): Ast.Block {
@@ -127,9 +143,10 @@ class Parser(
     }
 
     private fun parseExpression(): Ast.Expr {
-        when (peek().type) {
-            TokenType.STRING_LIT -> return Ast.StringExpr(consume().lexeme)
-            TokenType.NUMBER_LIT -> return Ast.NumberExpr(consume().lexeme.toInt()) // TODO: toDouble or something depending on decimal
+        return when (peek().type) {
+            TokenType.STRING_LIT -> Ast.StringExpr(consume().lexeme)
+            TokenType.NUMBER_LIT -> Ast.NumberExpr(consume().lexeme.toDouble())
+            TokenType.IDENT -> Ast.IdentifierExpr(consume().lexeme)
             else -> error("Unexpected Token ${peek()} for expression")
         }
     }

@@ -7,6 +7,7 @@ enum class TokenType {
 
     FN,
     VAL,
+    MUT,
     WITH,
     IMPORT,
     PACKAGE,
@@ -16,6 +17,7 @@ enum class TokenType {
     DOT, // .
     COMMA, // ,
     SEMI, // ;
+    COLON, // :
     LPAREN, // (
     RPAREN, // )
     LBRACE, // {

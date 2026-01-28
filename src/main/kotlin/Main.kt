@@ -16,6 +16,7 @@ fun main() {
         fn join() {
             val x = 5;
             with defaultPlayer() {
+               sendMessage("hi");
                val hi = 6;
                sendMessage("hi");
             }

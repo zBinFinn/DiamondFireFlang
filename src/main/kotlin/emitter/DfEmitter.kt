@@ -26,6 +26,7 @@ class DfEmitter {
                 emitBody(entry.body, sb)
                 sb.appendLine("end")
             }
+
             is Ir.EntityEvent -> {
                 sb.appendLine("""ee "${entry.eventName}"""")
                 emitBody(entry.body, sb)
@@ -34,9 +35,16 @@ class DfEmitter {
         }
     }
 
-    private fun emitFunction(function: Ir.Function, sb: StringBuilder) {
-        sb.appendLine("""fn ${function.name}""")
-        emitBody(function.body, sb)
+    private fun emitFunction(fn: Ir.Function, sb: StringBuilder) {
+        sb.append("fn \"${fn.name}\"")
+        if (fn.parameters.isNotEmpty()) {
+            sb.append(" args(")
+            sb.append(fn.parameters.joinToString(", ") { emitValue(it) }) // args(s"Hello", s"Bye")
+            sb.append(")")
+            sb.append(" ")
+        }
+        sb.appendLine()
+        emitBody(fn.body, sb)
         sb.appendLine("end")
     }
 
@@ -91,11 +99,12 @@ class DfEmitter {
     }
 
     private fun emitValue(value: Ir.Value): String {
-        return when(value) {
+        return when (value) {
             is Ir.StringValue -> """s"${escape(value.value)}""""
             is Ir.StyledText -> """t"${escape(value.value)}""""
-            is Ir.NumberValue -> """n"${value.value}""""
-            is Ir.Variable -> """vLI${value.name}""" // TODO: not just line variables
+            is Ir.NumberValue -> "n\"${value.value}\""
+            is Ir.Variable -> "vLI\"${value.name}\"" // TODO: not just line variables
+            is Ir.Parameter -> "${if (value.mutable) "pm" else "p"}\"${value.name}\""
         }
     }
 

@@ -99,10 +99,22 @@ class IrLowerer(
         val symbols = SymbolTable()
         val body = mutableListOf<Ir.Instr>()
 
+        val parameters = mutableListOf<Ir.Parameter>()
+        for (param in function.parameters) {
+            parameters += lowerParameter(param)
+        }
+
         for (stmt in function.body.statements) {
             lowerStatement(stmt, symbols, body, context)
         }
-        return Ir.Function(function.name, body)
+        return Ir.Function(function.name, parameters, body)
+    }
+
+    private fun lowerParameter(param: Ast.Parameter): Ir.Parameter {
+        return Ir.Parameter(
+            name = param.name,
+            mutable = param.mutable,
+        )
     }
 
     private fun lowerStatement(
@@ -119,7 +131,7 @@ class IrLowerer(
                 out += Ir.SetVariableAction(
                     actionName = "=",
                     args = listOf(
-                        Ir.StringValue(name),
+                        Ir.Variable(name),
                         lowerExpr(stmt.expression, symbols, context)
                     ),
                     tags = emptyList(),
@@ -186,7 +198,7 @@ class IrLowerer(
         symbols: SymbolTable,
         context: LoweringContext
     ) {
-        out += Ir.CallFunction(stmt.name)
+        out += Ir.CallFunction(stmt.name, stmt.args.map { lowerExpr(it, symbols, context) })
     }
 
     private fun emitSelectionReset(out: MutableList<Ir.Instr>) {
@@ -209,13 +221,10 @@ class IrLowerer(
         return when (expr) {
             is Ast.StringExpr -> Ir.StringValue(expr.value)
             is Ast.NumberExpr -> Ir.NumberValue(expr.value)
-
-            /*
             is Ast.IdentifierExpr -> {
                 symbols.resolve(expr.name)
-                IrVarRef(expr.name)
+                Ir.Variable(expr.name)
             }
-             */
         }
     }
 

@@ -1,6 +1,10 @@
 import std.player.sendMessage;
-import std.selections.Selections;
+import std.selections.player.selectDefault;
 import std.player.events.PlayerEvent
+
+// PascalCase
+val GameCountdown = 0;
+
 
 @PlayerEvent(PlayerEvent.Join)
 fn joinEvent() {
@@ -9,9 +13,15 @@ fn joinEvent() {
         funny();
     }
 
-    with "so \"Event Target\" tags(26 "Event Target" "Default")" {
-        sendMessage($"<gray>Hello World");
+    with selectDefault() {
+        savePlayerData();
     }
+}
+
+@PlayerSelector
+fn selectAlivePlayers() {
+    selectAll()
+    filter
 }
 
 @Selector
@@ -28,6 +38,19 @@ fn selectPlayersByName(name: String) {
 fn funny() {
     sendMessage("funny");
 }
+
+dict PlayerData {
+    money: Number,
+    spermCount: Number,
+    isCool: Boolean
+}
+
+@OnPlayerSelection
+fn savePlayerData(data: PlayerData) {
+    val uuid = getUuid();
+    save(uuid + " data", data)
+}
+
 
 // This would compile into:
 /*

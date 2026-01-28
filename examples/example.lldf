@@ -3,10 +3,17 @@ sv "=" args(vLI"Test", s"Hello")
 pa "SendMessage" args(vLI"Test") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Default)
 end
 
+fn "sendMessage" args(p"name", p["otherArg"])
+fn "sendMessage" args(pm"name") // Mutable Arg
+
 /*
+cf = Call Function
+sp = Start Process
+
+fn = Function
+
 pe = Player Event
 fn = Function
-cf = Call Function
 sv = Set Variable
 pa = Player Action
 so = Select Object
@@ -32,4 +39,6 @@ vLI"" = Variable LINE
 s"" = String
 t"" = Styled Text
 n"" = Number
+p"" = Parameter (Any Value)
+pm"" = Mutable Parameter (Variable)
 */
