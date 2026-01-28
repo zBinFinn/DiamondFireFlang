@@ -11,6 +11,14 @@ sv = Set Variable
 pa = Player Action
 so = Select Object
 end = New Template
+ip = If Player
+ig = If Game
+iv = If Var
+
+ilp = If Left Paren
+irp = If Right Paren
+rlp = Repeat Left Paren
+rrp = Repeat Right Paren
 
 -----------------------
 

@@ -2,6 +2,7 @@ package com.zbinfinn.ast
 
 import com.zbinfinn.tokenizer.Token
 import com.zbinfinn.tokenizer.TokenType
+import kotlin.math.exp
 
 class Parser(
     private val tokens: List<Token>,
@@ -71,8 +72,31 @@ class Parser(
         return Ast.Block(statements)
     }
 
+    private fun tryParseFunctionCall(expectSemi: Boolean): Ast.FunctionCall? {
+        val identifier = expect(TokenType.IDENT, "Expected identifier").lexeme
+        if (match(TokenType.LPAREN)) {
+            val arguments = mutableListOf<Ast.Expr>()
+            if (!match(TokenType.RPAREN)) {
+                do {
+                    arguments += parseExpression()
+                } while (match(TokenType.COMMA))
+                expect(TokenType.RPAREN, "Expected ')'")
+            }
+            if (expectSemi) {
+                expect(TokenType.SEMI, "Expected ';'")
+            }
+            return Ast.FunctionCall(identifier, arguments)
+        }
+        unconsume(1)
+        return null
+    }
+
+    private fun unconsume(amount: Int) {
+        index -= amount
+    }
+
     private fun parseStatement(): Ast.Statement {
-        when(peek().type) {
+        when (peek().type) {
             TokenType.VAL -> {
                 match(TokenType.VAL)
                 val identifier = expect(TokenType.IDENT, "Expected identifier").lexeme
@@ -82,6 +106,22 @@ class Parser(
 
                 return Ast.ImmutableAssignment(identifier, expression)
             }
+
+            TokenType.WITH -> {
+                match(TokenType.WITH)
+                val functionCall = tryParseFunctionCall(expectSemi = false) ?: error("Expected selector function call after 'with'")
+                val block = parseBlock()
+                return Ast.WithBlock(functionCall, block)
+            }
+
+            TokenType.IDENT -> {
+                val functionCall = tryParseFunctionCall(expectSemi = true)
+                if (functionCall != null) {
+                    return functionCall
+                }
+                TODO()
+            }
+
             else -> error("Unexpected token ${peek()} for statement")
         }
     }
@@ -101,11 +141,11 @@ class Parser(
             do {
                 val expression = parseExpression()
                 arguments.add(expression)
-            } while(match(TokenType.COMMA))
+            } while (match(TokenType.COMMA))
             expect(TokenType.RPAREN, "Expected ')'")
         }
 
-        return Ast.NamedAnnotation(identifier, arguments)
+        return Ast.Annotation(identifier, arguments)
     }
 
     private fun parseImport(): Ast.Import {

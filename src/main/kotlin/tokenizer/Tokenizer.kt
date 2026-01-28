@@ -3,6 +3,26 @@ package com.zbinfinn.tokenizer
 class Tokenizer(
     val content: String,
 ) {
+    private val oneCharTokens = mapOf(
+        '@' to TokenType.AT,
+        '.' to TokenType.DOT,
+        ',' to TokenType.COMMA,
+        ';' to TokenType.SEMI,
+        '(' to TokenType.LPAREN,
+        ')' to TokenType.RPAREN,
+        '{' to TokenType.LBRACE,
+        '}' to TokenType.RBRACE,
+        '=' to TokenType.EQ
+    )
+
+    private val keywords = mapOf(
+        "fn" to TokenType.FN,
+        "val" to TokenType.VAL,
+        "with" to TokenType.WITH,
+        "import" to TokenType.IMPORT,
+        "package" to TokenType.PACKAGE,
+    )
+
     private val allowedIdentifierLetters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         .toCharArray()
 
@@ -22,30 +42,38 @@ class Tokenizer(
     }
 
     private fun process() {
-        when (peek()) {
+        val peeked = peek();
+        if (oneCharTokens.contains(peeked)) {
+            addTokenConsumeOne(oneCharTokens[peeked]!!, peeked.toString())
+            return;
+        }
+        when (peeked) {
             ' ', '\n', '\r' -> consume()
-            '@' -> addTokenConsumeOne(TokenType.AT, "@")
-            '.' -> addTokenConsumeOne(TokenType.DOT, ".")
-            ',' -> addTokenConsumeOne(TokenType.COMMA, "/")
-            ';' -> addTokenConsumeOne(TokenType.SEMI, ";")
-            '(' -> addTokenConsumeOne(TokenType.LPAREN, "(")
-            ')' -> addTokenConsumeOne(TokenType.RPAREN, ")")
-            '{' -> addTokenConsumeOne(TokenType.LBRACE, "{")
-            '}' -> addTokenConsumeOne(TokenType.RBRACE, "}")
-            '=' -> addTokenConsumeOne(TokenType.EQ, "=")
             '"' -> {
                 val buffer = StringBuffer()
                 consume() // Consume leading "
-                while (canPeek() && peek() != '"') {
+                while (canPeek()) {
+                    if (peek() == '"') {
+                        break
+                    }
+
+                    if (peek() == '\\' && canPeek(ahead = 1) && peek(ahead = 1) == '"') {
+                        consumeMultiple(2)
+                        buffer.append('"')
+                        println(peek())
+                        continue
+                    }
+
                     buffer.append(consume())
                 }
+                println("String Literaled: $buffer")
                 consume() // Consume trailing "
 
                 addToken(TokenType.STRING_LIT, buffer.toString())
             }
 
             else -> {
-                if (peek().isDigit()) {
+                if (peeked.isDigit()) {
                     // TODO: Decimals
                     val buffer = StringBuffer()
                     while (canPeek() && peek().isDigit()) {
@@ -60,27 +88,13 @@ class Tokenizer(
                 while (canPeek() && allowedIdentifierLetters.contains(peek())) { // TODO properly care for identifier rules
                     buffer.append(consume())
                 }
-                when (buffer.toString()) {
-                    "fn" -> {
-                        addToken(TokenType.FN, "fn")
-                        return
-                    }
 
-                    "val" -> {
-                        addToken(TokenType.VAL, "val")
-                        return
-                    }
-
-                    "import" -> {
-                        addToken(TokenType.IMPORT, "import")
-                        return
-                    }
-
-                    "package" -> {
-                        addToken(TokenType.PACKAGE, "package")
-                        return
-                    }
-
+                val buffered = buffer.toString()
+                if (keywords.containsKey(buffered)) {
+                    addToken(keywords[buffered]!!, buffered)
+                    return
+                }
+                when (buffered) {
                     else -> {
                         val string = buffer.toString()
                         // TODO: Actual Rules for what counts as an Identifier
@@ -105,7 +119,7 @@ class Tokenizer(
     }
 
     private fun peek(ahead: Int = 0): Char {
-        return content[index]
+        return content[index + ahead]
     }
 
     private fun consume(): Char {
@@ -113,6 +127,7 @@ class Tokenizer(
     }
 
     private fun consumeMultiple(amount: Int) {
+        println("Consumed ${content.substring(index, index + amount)}")
         index += amount
     }
 }

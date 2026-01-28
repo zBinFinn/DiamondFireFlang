@@ -44,40 +44,50 @@ class DfEmitter {
         for (instr in body) {
             emitInstr(instr, sb)
         }
-        sb.appendLine()
     }
 
     private fun emitInstr(instr: Ir.Instr, sb: StringBuilder) {
         when (instr) {
-            is Ir.CallFunction -> {
-                sb.appendLine("""cf "${instr.name}"""")
-            }
-            is Ir.PlayerAction -> emitPlayerAction(instr, sb)
-            is Ir.SetVariableAction -> emitSetVariableAction(instr, sb)
+            is Ir.SimpleAction -> emitSimpleAction(instr, sb)
+            is Ir.InlineIr -> emitInlineIr(instr, sb)
         }
     }
 
-    private fun emitSetVariableAction(instr: Ir.SetVariableAction, sb: StringBuilder) {
-        sb.append("""sv "${instr.actionName}" """)
-        sb.append("args(")
-        sb.append(instr.args.joinToString(", ") { emitValue(it) })
-        sb.append(") ")
+    private fun emitInlineIr(instr: Ir.InlineIr, sb: StringBuilder) {
+        sb.append(instr.ir)
     }
 
-    private fun emitPlayerAction(instr: Ir.PlayerAction, sb: StringBuilder) {
-        sb.append("""pa "${instr.actionName}" """)
-        sb.append("args(")
-        sb.append(instr.args.joinToString(", ") { emitValue(it) })
-        sb.append(") ")
-
-        // TODO: Bake tags into the IR
-        if (instr.actionName == "SendMessage") {
-            sb.append(
-                """tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") """
-            )
+    private fun emitSimpleAction(
+        instr: Ir.SimpleAction,
+        sb: StringBuilder
+    ) {
+        sb.append(instr.blockIrName) // pa
+        sb.append(" ")
+        sb.append("\"${instr.actionName}\"") // "SendMessage"
+        sb.append(" ")
+        if (instr.subAction != null) {
+            sb.append("\"${instr.subAction}\"") // "SubAction"
+            sb.append(" ")
         }
-
-        sb.appendLine("""target(${instr.target.name})""")
+        if (instr.target != null) {
+            sb.append("target(")
+            sb.append(instr.target)
+            sb.append(")")
+            sb.append(" ")
+        }
+        if (instr.args.isNotEmpty()) {
+            sb.append("args(")
+            sb.append(instr.args.joinToString(", ") { emitValue(it) }) // args(s"Hello", s"Bye")
+            sb.append(")")
+            sb.append(" ")
+        }
+        if (instr.tags.isNotEmpty()) {
+            sb.append("tags(")
+            sb.append(instr.tags.joinToString(", ") { emitTag(it) }) // tags(26 "Hello" "World", 25 "Bye" "Hi")
+            sb.append(")")
+            sb.append(" ")
+        }
+        sb.appendLine()
     }
 
     private fun emitValue(value: Ir.Value): String {
@@ -87,6 +97,10 @@ class DfEmitter {
             is Ir.NumberValue -> """n"${value.value}""""
             is Ir.Variable -> """vLI${value.name}""" // TODO: not just line variables
         }
+    }
+
+    private fun emitTag(tag: Ir.Tag): String {
+        return "${tag.slot} \"${tag.name}\" \"${tag.selectedOption}\""
     }
 
     private fun escape(text: String): String {

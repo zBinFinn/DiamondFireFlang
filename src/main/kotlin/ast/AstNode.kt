@@ -1,5 +1,7 @@
 package com.zbinfinn.ast
 
+import com.zbinfinn.ir.Ir
+
 object Ast {
     sealed interface AstNode
 
@@ -22,29 +24,30 @@ object Ast {
         val path: String,
     ) : AstNode
 
-    sealed interface Annotation
-
-    data class NamedAnnotation(
+    data class Annotation(
         val name: String,
         val args: List<Expr>
-    ) : Annotation
+    )
 
-    sealed interface Selection
-
-    data class EventTargetSelection(
-        val target: Expr,
-        // i.e., Default or Killer or Victim or Selection
-    ) : Selection
+    data class Selection(
+        val expr: Expr // inline IR
+    )
 
     sealed interface Statement : AstNode
+
+    data class InlineIr(
+        val ir: List<Ir.Instr>
+    ) : Statement {
+        constructor(vararg ir: Ir.Instr) : this(ir.toList())
+    }
 
     data class FunctionCall(
         val name: String,
         val args: List<Expr>,
     ) : Statement
 
-    data class SelectionBlock(
-        val selection: Selection,
+    data class WithBlock(
+        val selectorFunction: FunctionCall,
         val body: Block,
     ) : Statement
 

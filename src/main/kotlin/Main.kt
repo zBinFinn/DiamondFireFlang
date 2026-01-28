@@ -8,11 +8,16 @@ import com.zbinfinn.tokenizer.Tokenizer
 
 fun main() {
     val testCode = """
-        import hello.world;
+        import std.player.sendMessage;
+        import std.selection.player.defaultPlayer;
         
         @PlayerEvent("Join")
         fn join() {
             val x = 5;
+            with defaultPlayer() {
+               val hi = 6;
+               sendMessage("hi");
+            }
         }
     """.trimIndent()
 

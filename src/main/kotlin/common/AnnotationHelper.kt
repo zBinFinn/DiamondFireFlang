@@ -1,6 +1,7 @@
 package com.zbinfinn.common
 
 import com.zbinfinn.ast.Ast
+import com.zbinfinn.ir.LoweringContext
 
 sealed interface EventAnnotation {
     val eventName: String
@@ -21,8 +22,6 @@ fun parseEventAnnotation(
     var result: EventAnnotation? = null
 
     for (annotation in annotations) {
-        if (annotation !is Ast.NamedAnnotation) continue
-
         when (annotation.name) {
             "PlayerEvent" -> {
                 if (annotation.args.size != 1) {
@@ -36,6 +35,7 @@ fun parseEventAnnotation(
 
                 result = PlayerEventAnnotation(arg.value)
             }
+
             "EntityEvent" -> {
                 if (annotation.args.size != 1) {
                     error("@EntityEvent requires exactly one argument")
@@ -51,4 +51,30 @@ fun parseEventAnnotation(
         }
     }
     return result
+}
+
+fun requiresSelection(function: Ast.FunctionDecl): Boolean {
+    return function.annotations.any {
+        it.name == "OnPlayerSelection"
+    }
+}
+
+fun selectorType(fn: Ast.FunctionDecl): LoweringContext.SelectionType? {
+    return when {
+        fn.annotations.any { it.name == "PlayerSelector" } ->
+            LoweringContext.SelectionType.Player
+        fn.annotations.any { it.name == "EntitySelector" } ->
+            LoweringContext.SelectionType.Entity
+        else -> null
+    }
+}
+
+fun requiredSelectionType(fn: Ast.FunctionDecl): LoweringContext.SelectionType? {
+    return when {
+        fn.annotations.any { it.name == "OnPlayerSelection" } ->
+            LoweringContext.SelectionType.Player
+        fn.annotations.any { it.name == "OnEntitySelection" } ->
+            LoweringContext.SelectionType.Entity
+        else -> null
+    }
 }

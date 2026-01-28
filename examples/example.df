@@ -4,19 +4,24 @@ import std.player.events.PlayerEvent
 
 @PlayerEvent(PlayerEvent.Join)
 fn joinEvent() {
-    Selections.Default {
+    with selectDefault() {
         sendMessage($"<gray>Hello World");
         funny();
     }
-    // maybe instead like
-    /*
-    for Selections.Default {
+
+    with "so \"Event Target\" tags(26 "Event Target" "Default")" {
         sendMessage($"<gray>Hello World");
     }
-    */
+}
 
-    // Shorthand
-    Selections.Default.sendMessage($"<green>Another Message!");
+@Selector
+fn selectDefault() {
+    ir "so \"Event Target\" [...]"
+}
+
+@PlayerSelector
+fn selectPlayersByName(name: String) {
+    ir "so \"PByName\" args(s\"${name}\")"
 }
 
 @OnPlayerSelection
@@ -30,7 +35,10 @@ pe "Join"
 so "EventTarget" tags(26 "Event Target" "Default")
 pa "SendMessage" args(t"<gray>Hello World") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Selection)
 cf "funny"
+so "Reset"
+so "EventTarget" tags(26 "Event Target" "Default")
 pa "SendMessage" args(t"<green>Another Message!") tags(26 "Alignment Mode" "Regular", 25 "Text Value Merging" "Add spaces", 24 "Inherit Styles" "True") target(Selection)
+so "Reset"
 end
 
 fn funny
