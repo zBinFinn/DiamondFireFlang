@@ -104,9 +104,19 @@ class IrLowerer(
             parameters += lowerParameter(param)
         }
 
+        val requiredSelection = requiredSelectionType(function)
+        if (requiredSelection != null) {
+            context.selectionStack.addLast(requiredSelection)
+        }
+
         for (stmt in function.body.statements) {
             lowerStatement(stmt, symbols, body, context)
         }
+
+        if (requiredSelection != null) {
+            context.selectionStack.removeLast()
+        }
+
         return Ir.Function(function.name, parameters, body)
     }
 

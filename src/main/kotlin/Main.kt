@@ -19,7 +19,13 @@ fun main() {
                sendMessage("hi");
                val hi = 6;
                sendMessage("hi");
+               sendFunny();
             }
+        }
+        
+        @OnPlayerSelection
+        fn sendFunny() {
+            sendMessage("Funny!");
         }
     """.trimIndent()
 
