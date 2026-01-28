@@ -4,6 +4,7 @@ import com.zbinfinn.ast.Parser
 import com.zbinfinn.emitter.DfEmitter
 import com.zbinfinn.ir.Ir
 import com.zbinfinn.ir.IrLowerer
+import com.zbinfinn.nbt.TemplateNbtGenerator
 import com.zbinfinn.tokenizer.Tokenizer
 
 fun main() {
@@ -78,4 +79,12 @@ fun main() {
 
     println("!! Emitted:")
     println(df)
+
+    println("!! NBT:")
+    val nbtGenerator = TemplateNbtGenerator(df)
+    val generated = nbtGenerator.generate()
+    generated.forEach {
+        println(it)
+        println("minecraft:ender_chest[minecraft:custom_data={PublicBukkitValues:{\"hypercube:codetemplatedata\":'${it}'}}]")
+    }
 }
