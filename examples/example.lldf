@@ -23,4 +23,5 @@ vLI"" = Variable LINE
 
 s"" = String
 t"" = Styled Text
+n"" = Number
 */

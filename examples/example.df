@@ -1,12 +1,19 @@
+import std.player.sendMessage;
 import std.selections.Selections;
-import std.events.Events
+import std.player.events.PlayerEvent
 
-@Event(Events.Join)
+@PlayerEvent(PlayerEvent.Join)
 fn joinEvent() {
     Selections.Default {
         sendMessage($"<gray>Hello World");
         funny();
     }
+    // maybe instead like
+    /*
+    for Selections.Default {
+        sendMessage($"<gray>Hello World");
+    }
+    */
 
     // Shorthand
     Selections.Default.sendMessage($"<green>Another Message!");
