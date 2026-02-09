@@ -14,6 +14,13 @@ object SendMessage : StdFunctionProvider {
                 annotations = listOf(
                     Ast.Annotation("OnPlayerSelection", emptyList()),
                 ),
+                parameters = listOf(
+                    Ast.Parameter(
+                        name = "text",
+                        type = Ast.Type("String"),
+                        mutable = false
+                    )
+                ),
                 body = Ast.Block(
                     statements = listOf(
                         Ast.InlineIr(
@@ -30,13 +37,6 @@ object SendMessage : StdFunctionProvider {
                                 target = null
                             )
                         )
-                    )
-                ),
-                parameters = listOf(
-                    Ast.Parameter(
-                        name = "text",
-                        type = Ast.Type("String"),
-                        mutable = false
                     )
                 )
             )

@@ -20,6 +20,7 @@ class Tokenizer(
         "fn" to TokenType.FN,
         "val" to TokenType.VAL,
         "mut" to TokenType.MUT,
+        "mod" to TokenType.MOD,
         "with" to TokenType.WITH,
         "import" to TokenType.IMPORT,
         "package" to TokenType.PACKAGE,
@@ -68,7 +69,6 @@ class Tokenizer(
 
                     buffer.append(consume())
                 }
-                println("String Literaled: $buffer")
                 consume() // Consume trailing "
 
                 addToken(TokenType.STRING_LIT, buffer.toString())

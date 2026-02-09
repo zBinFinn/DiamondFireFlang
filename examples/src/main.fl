@@ -1,0 +1,17 @@
+mod main;
+
+import std.player.sendMessage;
+import std.selection.player.defaultPlayer;
+
+import funny.sendFunny;
+
+@PlayerEvent("Join")
+fn join() {
+    val x = 5;
+    with defaultPlayer() {
+       sendMessage("hi");
+       val hi = 6;
+       sendMessage("hi");
+       sendFunny();
+    }
+}

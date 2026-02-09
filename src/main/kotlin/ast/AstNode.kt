@@ -6,8 +6,13 @@ object Ast {
     sealed interface AstNode
 
     data class Program(
+        val module: ModuleDecl,
         val imports: List<Import>,
         val functions: List<FunctionDecl>
+    ) : AstNode
+
+    data class ModuleDecl(
+        val path: String,
     ) : AstNode
 
     data class FunctionDecl(

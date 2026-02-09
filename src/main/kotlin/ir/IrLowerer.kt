@@ -8,11 +8,15 @@ import com.zbinfinn.common.parseEventAnnotation
 import com.zbinfinn.common.requiredSelectionType
 import com.zbinfinn.common.requiresSelection
 import com.zbinfinn.common.selectorType
+import com.zbinfinn.compiler.FunctionResolver
+import com.zbinfinn.compiler.GlobalFunctionTable
 import com.zbinfinn.stdlib.ImportContext
 import com.zbinfinn.stdlib.StdlibAst
 
 class IrLowerer(
-    val astProgram: Ast.Program
+    private val astProgram: Ast.Program,
+    private val globals: GlobalFunctionTable,
+    private val functionResolver: FunctionResolver
 ) {
     private val importContext = ImportContext(astProgram.imports.map { it.path })
     private val functionTable: Map<String, FunctionInfo> = buildFunctionTable()
@@ -117,7 +121,8 @@ class IrLowerer(
             context.selectionStack.removeLast()
         }
 
-        return Ir.Function(function.name, parameters, body)
+        val functionSymbol = functionResolver.resolve(function.name, astProgram)
+        return Ir.Function(functionSymbol.qualifiedName, parameters, body)
     }
 
     private fun lowerParameter(param: Ast.Parameter): Ir.Parameter {
@@ -151,13 +156,9 @@ class IrLowerer(
             is Ast.WithBlock -> {
                 val selectorCall = stmt.selectorFunction
 
-                val selectorFunction = resolveFunction(selectorCall.name) { function ->
-                    function.annotations.any {
-                        it.name == "PlayerSelector" || it.name == "EntitySelector"
-                    }
-                } ?: error("Unknown selector '${selectorCall.name}'")
+                val selectorFunction = functionResolver.resolve(selectorCall.name, astProgram)
 
-                val type = selectorType(selectorFunction)!!
+                val type = selectorType(selectorFunction.decl) ?: error("Unknown selector '${selectorCall.name}'")
 
                 lowerFunctionCall(stmt.selectorFunction, out, symbols, context)
 
@@ -171,25 +172,21 @@ class IrLowerer(
             }
 
             is Ast.FunctionCall -> {
-                val targetFunction = resolveFunction(stmt.name)
+                val symbol = functionResolver.resolve(stmt.name, astProgram)
+                val targetFunction = symbol.decl
 
-                if (targetFunction != null && selectorType(targetFunction) != null) {
+                if (selectorType(targetFunction) != null) {
                     error(
                         "Selector function '${stmt.name}' may only be used in a 'with' block"
                     )
                 }
 
-                if (targetFunction != null) {
-                    val required = requiredSelectionType(targetFunction)
-                    val active = context.currentSelection()
+                val required = requiredSelectionType(targetFunction)
+                val active = context.currentSelection()
 
-                    if (required != null) {
-                        if (active == null) {
-                            error("Function '${stmt.name}' requires $required selection")
-                        }
-                        if (required != active) {
-                            error("Function '${stmt.name}' requires $required selection")
-                        }
+                if (required != null) {
+                    if (active == null || required != active) {
+                        error("Function '${stmt.name}' requires $required selection")
                     }
                 }
 
@@ -208,7 +205,8 @@ class IrLowerer(
         symbols: SymbolTable,
         context: LoweringContext
     ) {
-        out += Ir.CallFunction(stmt.name, stmt.args.map { lowerExpr(it, symbols, context) })
+        val functionSymbol = functionResolver.resolve(stmt.name, astProgram)
+        out += Ir.CallFunction(functionSymbol.qualifiedName, stmt.args.map { lowerExpr(it, symbols, context) })
     }
 
     private fun emitSelectionReset(out: MutableList<Ir.Instr>) {
@@ -220,11 +218,6 @@ class IrLowerer(
                 tags = emptyList()
             )
         )
-    }
-
-    private fun resolveFunction(name: String, filter: (Ast.FunctionDecl) -> Boolean = { true }): Ast.FunctionDecl? {
-        val info = functionTable[name] ?: return null
-        return info.decl.takeIf(filter)
     }
 
     private fun lowerExpr(expr: Ast.Expr, symbols: SymbolTable, context: LoweringContext): Ir.Value {

@@ -27,6 +27,7 @@ class Parser(
     }
 
     fun parseProgram(): Ast.Program {
+        val module = parseModule();
         val imports = mutableListOf<Ast.Import>()
         val functions = mutableListOf<Ast.FunctionDecl>()
 
@@ -38,7 +39,20 @@ class Parser(
             functions += parseFunction();
         }
 
-        return Ast.Program(imports, functions)
+        return Ast.Program(module, imports, functions)
+    }
+
+    private fun parseModule(): Ast.ModuleDecl {
+        expect(TokenType.MOD, "Expected module declaration: 'mod <path>;'")
+        val path = mutableListOf<String>()
+        do {
+            path.add(expect(TokenType.IDENT, "Expected identifier as part of module declaration").lexeme)
+        } while (match(TokenType.DOT))
+
+        expect(TokenType.SEMI, "Expected ';' at the end of a module declaration")
+        return Ast.ModuleDecl(
+            path.joinToString(separator = ", ")
+        )
     }
 
     private fun parseFunctionParameter(): Ast.Parameter {

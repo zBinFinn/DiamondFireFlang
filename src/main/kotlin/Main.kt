@@ -1,97 +1,74 @@
 package com.zbinfinn
 
+import com.zbinfinn.ast.Ast
 import com.zbinfinn.ast.Parser
+import com.zbinfinn.compiler.FunctionResolver
+import com.zbinfinn.compiler.GlobalFunctionTable
 import com.zbinfinn.emitter.DfEmitter
-import com.zbinfinn.ir.Ir
 import com.zbinfinn.ir.IrLowerer
 import com.zbinfinn.nbt.TemplateNbtGenerator
+import com.zbinfinn.stdlib.ImportContext
+import com.zbinfinn.stdlib.StdlibAst
 import com.zbinfinn.tokenizer.Tokenizer
+import kotlin.io.path.Path
+import kotlin.io.path.readText
 
 fun main() {
-    val testCode = """
-        import std.player.sendMessage;
-        import std.selection.player.defaultPlayer;
-        
-        @PlayerEvent("Join")
-        fn join() {
-            val x = 5;
-            with defaultPlayer() {
-               sendMessage("hi");
-               val hi = 6;
-               sendMessage("hi");
-               sendFunny();
-            }
-        }
-        
-        @OnPlayerSelection
-        fn sendFunny() {
-            sendMessage("Funny!");
-        }
-    """.trimIndent()
+    // TODO: I love hardcoding file paths
+    val sourceFiles = listOf(
+        Path("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\examples\\src\\funny.fl"),
+        Path("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\examples\\src\\main.fl")
+    )
 
-    val tokenizer = Tokenizer(testCode)
-    val tokens = tokenizer.tokenize()
-    println("!! Tokens:")
-    tokens.forEach { token ->
-        println(token.toString())
+    val programs = sourceFiles.map { path ->
+        val code = path.readText()
+        val tokens = Tokenizer(code).tokenize()
+        Parser(tokens).parseProgram()
     }
 
-    println()
+    val globals = GlobalFunctionTable()
+    programs.forEach { program ->
+        globals.register(program)
+    }
+    registerAllStdlibAst(globals)
 
-    println("!! AST:")
-    val parser = Parser(tokens)
-    val program = parser.parseProgram()
-    println("Imports: ")
-    program.imports.forEach { println(it) }
-    println()
-    println("Function Decls:")
-    program.functions.forEach { function ->
-        println("Function (${function.name}):")
-        println("Annotations:")
-        function.annotations.forEach { println(it) }
-        println("Statements:")
-        function.body.statements.forEach { println(it) }
-        println("")
+    println("registered functions: ")
+    globals.allFunctions().forEach {
+        println(it.qualifiedName)
     }
 
-    println()
+    val resolver = FunctionResolver(globals)
 
-    val lowerer = IrLowerer(program)
-    val irProgram = lowerer.lowerProgram()
-    println("!! IR Program:")
-    println("Events:")
-    irProgram.entryPoints.forEach { entry ->
-        when (entry) {
-            is Ir.PlayerEvent -> {
-                println("Player Event: ${entry.eventName}")
-                entry.body.forEach { println(it) }
-            }
-            is Ir.EntityEvent -> {
-                println("Entity Event: ${entry.eventName}")
-                entry.body.forEach { println(it) }
-            }
-        }
-        println()
-    }
-    println("Functions:")
-    irProgram.functions.forEach { function ->
-        println("Function (${function.name}):")
-        function.body.forEach { println(it) }
+    val irPrograms = programs.map { program ->
+        IrLowerer(program, globals, resolver).lowerProgram()
     }
 
-    println()
+    val emittedDf = irPrograms.joinToString(separator = "\n") { program ->
+        DfEmitter().emit(program)
+    };
 
-    val emitter = DfEmitter()
-    val df = emitter.emit(irProgram)
-
-    println("!! Emitted:")
-    println(df)
+    println("!! DF:")
+    println(emittedDf)
 
     println("!! NBT:")
-    val nbtGenerator = TemplateNbtGenerator(df)
+    val nbtGenerator = TemplateNbtGenerator(emittedDf)
     val generated = nbtGenerator.generate()
     generated.forEach {
         println(it)
         println("minecraft:ender_chest[minecraft:custom_data={PublicBukkitValues:{\"hypercube:codetemplatedata\":'${it}'}}]")
+    }
+}
+
+fun registerAllStdlibAst(globals: GlobalFunctionTable) {
+    for (std in StdlibAst.functions) {
+        val modulePath = std.importPath.substringBeforeLast(".")
+        val fnName = std.decl.name
+        val qualifiedName = "$modulePath.$fnName"
+
+        globals.registerFunction(
+            modulePath = modulePath,
+            function = std.decl,
+            qualifiedName = qualifiedName
+        )
     }
 }

@@ -1,0 +1,8 @@
+mod funny;
+
+import std.player.sendMessage;
+
+@OnPlayerSelection
+fn sendFunny() {
+    sendMessage("Funny!");
+}

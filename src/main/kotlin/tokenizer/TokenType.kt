@@ -8,6 +8,7 @@ enum class TokenType {
     FN,
     VAL,
     MUT,
+    MOD,
     WITH,
     IMPORT,
     PACKAGE,
