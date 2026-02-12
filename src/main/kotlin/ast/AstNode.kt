@@ -8,12 +8,23 @@ object Ast {
     data class Program(
         val module: ModuleDecl,
         val imports: List<Import>,
+        val dicts: List<DictDecl>,
         val functions: List<FunctionDecl>
     ) : AstNode
 
     data class ModuleDecl(
         val path: String,
     ) : AstNode
+
+    data class DictDecl(
+        val name: String,
+        val fields: List<Field>
+    ) : AstNode
+
+    data class Field(
+        val name: String,
+        val type: Type
+    )
 
     data class FunctionDecl(
         val name: String,
@@ -72,6 +83,12 @@ object Ast {
         val expression: Expr,
     ) : Statement
 
+    data class FieldAssignment(
+        val receiver: Expr,
+        val field: String,
+        val value: Expr
+    ) : Statement
+
     sealed interface Expr : AstNode
 
     data class StringExpr(
@@ -84,5 +101,20 @@ object Ast {
 
     data class IdentifierExpr(
         val name: String,
+    ) : Expr
+
+    data class DictLiteralExpr(
+        val typeName: String,
+        val entries: List<Entry>
+    ) : Expr {
+        data class Entry(
+            val field: String,
+            val value: Expr
+        )
+    }
+
+    data class FieldAccessExpr(
+        val receiver: Expr,
+        val field: String,
     ) : Expr
 }

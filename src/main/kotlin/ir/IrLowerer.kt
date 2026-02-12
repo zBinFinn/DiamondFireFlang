@@ -67,6 +67,7 @@ class IrLowerer(
         event: EventAnnotation,
         context: LoweringContext
     ): Ir.EntryPoint {
+        context.resetTempVariableIndex()
         val symbols = SymbolTable()
         val body = mutableListOf<Ir.Instr>()
 
@@ -87,6 +88,7 @@ class IrLowerer(
     }
 
     private fun lowerFunction(function: Ast.FunctionDecl, context: LoweringContext): Ir.Function {
+        context.resetTempVariableIndex()
         if (function.annotations.any {
                 setOf("OnPlayerSelection", "OnEntitySelection").contains(it.name) &&
                         setOf("PlayerSelector", "EntitySelector").contains(it.name)
@@ -141,13 +143,13 @@ class IrLowerer(
         when (stmt) {
             is Ast.ImmutableAssignment -> {
                 val name = stmt.identifier
-                symbols.define(name, mutable = false)
 
+                symbols.define(name, mutable = false)
                 out += Ir.SetVariableAction(
                     actionName = "=",
                     args = listOf(
                         Ir.Variable(name),
-                        lowerExpr(stmt.expression, symbols, context)
+                        lowerExpr(stmt.expression, symbols, out, context)
                     ),
                     tags = emptyList(),
                 )
@@ -196,6 +198,18 @@ class IrLowerer(
             is Ast.InlineIr -> {
                 out.addAll(stmt.ir)
             }
+
+            is Ast.FieldAssignment -> {
+                if (stmt.receiver is Ast.IdentifierExpr) {
+                    out += SetVars.setDictValue(
+                        stmt.receiver.name,
+                        stmt.field,
+                        lowerExpr(stmt.value, symbols, out, context)
+                    )
+                } else {
+                    error("Only simple dict field assignment supported for now")
+                }
+            }
         }
     }
 
@@ -206,7 +220,10 @@ class IrLowerer(
         context: LoweringContext
     ) {
         val functionSymbol = functionResolver.resolve(stmt.name, astProgram)
-        out += Ir.CallFunction(functionSymbol.qualifiedName, stmt.args.map { lowerExpr(it, symbols, context) })
+        out += Ir.CallFunction(
+            functionSymbol.qualifiedName,
+            stmt.args.map { lowerExpr(it, symbols, out, context) }
+        )
     }
 
     private fun emitSelectionReset(out: MutableList<Ir.Instr>) {
@@ -220,13 +237,51 @@ class IrLowerer(
         )
     }
 
-    private fun lowerExpr(expr: Ast.Expr, symbols: SymbolTable, context: LoweringContext): Ir.Value {
+    private fun lowerExpr(
+        expr: Ast.Expr,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ): Ir.Value {
         return when (expr) {
             is Ast.StringExpr -> Ir.StringValue(expr.value)
             is Ast.NumberExpr -> Ir.NumberValue(expr.value)
             is Ast.IdentifierExpr -> {
                 symbols.resolve(expr.name)
                 Ir.Variable(expr.name)
+            }
+
+            is Ast.DictLiteralExpr -> {
+                val dictTemp = context.newTempVariableName()
+                val keysTemp = context.newTempVariableName()
+                val valuesTemp = context.newTempVariableName()
+
+                val keys = expr.entries.map {
+                    Ir.StringValue(it.field)
+                }
+
+                val values = expr.entries.map {
+                    lowerExpr(it.value, symbols, out, context)
+                }
+
+                out += SetVars.createList(keysTemp, keys)
+                out += SetVars.createList(valuesTemp, values)
+                out += SetVars.createDict(dictTemp, keysTemp, valuesTemp)
+
+                Ir.Variable(dictTemp)
+            }
+
+            is Ast.FieldAccessExpr -> {
+                if (expr.receiver is Ast.IdentifierExpr) {
+
+                    val dictVar = expr.receiver.name
+                    val temp = context.newTempVariableName()
+
+                    out += SetVars.getDictValue(temp, dictVar, expr.field)
+                    Ir.Variable(temp)
+                } else {
+                    error("Only simple dict access supported for now")
+                }
             }
         }
     }

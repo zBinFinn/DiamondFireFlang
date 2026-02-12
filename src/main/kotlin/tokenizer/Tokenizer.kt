@@ -21,6 +21,7 @@ class Tokenizer(
         "val" to TokenType.VAL,
         "mut" to TokenType.MUT,
         "mod" to TokenType.MOD,
+        "dict" to TokenType.DICT,
         "with" to TokenType.WITH,
         "import" to TokenType.IMPORT,
         "package" to TokenType.PACKAGE,

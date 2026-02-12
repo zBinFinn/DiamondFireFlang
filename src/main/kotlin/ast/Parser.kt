@@ -8,7 +8,8 @@ class Parser(
 ) {
     private var index = 0
 
-    private fun peek(): Token = tokens[index]
+    private fun peek(ahead: Int = 0): Token = tokens[index + ahead]
+    private fun canPeek(ahead: UInt = 0u): Boolean = index + ahead.toInt() < tokens.size
     private fun consume(): Token = tokens[index++]
 
     private fun match(type: TokenType): Boolean {
@@ -30,16 +31,46 @@ class Parser(
         val module = parseModule();
         val imports = mutableListOf<Ast.Import>()
         val functions = mutableListOf<Ast.FunctionDecl>()
+        val dicts = mutableListOf<Ast.DictDecl>()
 
         while (match(TokenType.IMPORT)) {
             imports += parseImport();
         }
 
         while (peek().type != TokenType.EOF) {
-            functions += parseFunction();
+            when {
+                peek().type == TokenType.FN || peek().type == TokenType.AT -> functions += parseFunction();
+                peek().type == TokenType.DICT -> dicts += parseDict();
+                else -> error("Unexpected token '${peek()}'")
+            }
         }
 
-        return Ast.Program(module, imports, functions)
+        return Ast.Program(module, imports, dicts, functions)
+    }
+
+    private fun parseDict(): Ast.DictDecl {
+        expect(TokenType.DICT, "Expected 'dict'")
+        val dictName = expect(TokenType.IDENT, "Expected dict identifier").lexeme
+        expect(TokenType.LBRACE, "Expected '{' after dict name")
+        val fields = mutableListOf<Ast.Field>()
+        do {
+            fields += parseField();
+        } while (match(TokenType.COMMA))
+        expect(TokenType.RBRACE, "Expected '}' after dict fields")
+
+        return Ast.DictDecl(dictName, fields)
+    }
+
+    private fun parseField(): Ast.Field {
+        val name = expect(TokenType.IDENT, "Expected field name").lexeme
+        expect(TokenType.COLON, "Expected ':' after field name")
+        val type = parseType()
+        return Ast.Field(name, type)
+    }
+
+    private fun parseType(): Ast.Type {
+        val type = expect(TokenType.IDENT, "Expected type").lexeme
+        return Ast.Type(type)
     }
 
     private fun parseModule(): Ast.ModuleDecl {
@@ -82,7 +113,7 @@ class Parser(
         if (peek().type != TokenType.RPAREN) {
             do {
                 parameters.add(parseFunctionParameter())
-            } while(peek().type != TokenType.RPAREN)
+            } while (peek().type != TokenType.RPAREN)
         }
         expect(TokenType.RPAREN, "Expected ')'")
 
@@ -139,12 +170,32 @@ class Parser(
 
             TokenType.WITH -> {
                 match(TokenType.WITH)
-                val functionCall = tryParseFunctionCall(expectSemi = false) ?: error("Expected selector function call after 'with'")
+                val functionCall =
+                    tryParseFunctionCall(expectSemi = false) ?: error("Expected selector function call after 'with'")
                 val block = parseBlock()
                 return Ast.WithBlock(functionCall, block)
             }
 
             TokenType.IDENT -> {
+                if (canPeek(3u)
+                    && peek(1).type == TokenType.DOT
+                    && peek(2).type == TokenType.IDENT
+                    && peek(3).type == TokenType.EQ
+                ) {
+                    val identifier = consume().lexeme
+                    expect(TokenType.DOT, "Expected '.'")
+                    val field = consume().lexeme
+                    expect(TokenType.EQ, "Expected '='")
+                    val expression = parseExpression()
+                    expect(TokenType.SEMI, "Expected ';'")
+
+                    Ast.FieldAssignment(
+                        Ast.IdentifierExpr(identifier),
+                        field,
+                        expression
+                    )
+                }
+
                 val functionCall = tryParseFunctionCall(expectSemi = true)
                 if (functionCall != null) {
                     return functionCall
@@ -157,12 +208,60 @@ class Parser(
     }
 
     private fun parseExpression(): Ast.Expr {
+        return parsePostfixExpression()
+    }
+
+    private fun parsePostfixExpression(): Ast.Expr {
+        var expr = parsePrimaryExpression()
+
+        while (match(TokenType.DOT)) {
+            val fieldName = expect(TokenType.IDENT, "Expected field name after '.'").lexeme
+
+            expr = Ast.FieldAccessExpr(
+                receiver = expr,
+                field = fieldName,
+            )
+        }
+
+        return expr
+    }
+
+    private fun parsePrimaryExpression(): Ast.Expr {
         return when (peek().type) {
             TokenType.STRING_LIT -> Ast.StringExpr(consume().lexeme)
             TokenType.NUMBER_LIT -> Ast.NumberExpr(consume().lexeme.toDouble())
-            TokenType.IDENT -> Ast.IdentifierExpr(consume().lexeme)
+            TokenType.IDENT -> {
+                val identifier = consume().lexeme
+                if (match(TokenType.LBRACE)) {
+                    val entries = mutableListOf<Ast.DictLiteralExpr.Entry>()
+                    do {
+                        entries += parseDictLiteralEntry();
+                    } while (match(TokenType.COMMA))
+                    expect(TokenType.RBRACE, "Expected '}'")
+
+                    return Ast.DictLiteralExpr(identifier, entries)
+                }
+
+                return Ast.IdentifierExpr(identifier)
+            }
+
+            TokenType.LPAREN -> {
+                consume()
+                val expr = parseExpression()
+                expect(TokenType.RPAREN, "Expected ')'")
+                expr
+            }
+
             else -> error("Unexpected Token ${peek()} for expression")
         }
+    }
+
+    private fun parseDictLiteralEntry(): Ast.DictLiteralExpr.Entry {
+        val fieldName = expect(TokenType.IDENT, "Expected field name").lexeme
+        expect(TokenType.COLON, "Expected ':'")
+        val value = parseExpression()
+
+        return Ast.DictLiteralExpr.Entry(fieldName, value)
     }
 
     private fun parseAnnotation(): Ast.Annotation {

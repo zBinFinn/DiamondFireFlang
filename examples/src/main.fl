@@ -4,14 +4,36 @@ import std.player.sendMessage;
 import std.selection.player.defaultPlayer;
 
 import funny.sendFunny;
+import funny.FunnyNess;
 
 @PlayerEvent("Join")
 fn join() {
     val x = 5;
     with defaultPlayer() {
-       sendMessage("hi");
-       val hi = 6;
-       sendMessage("hi");
-       sendFunny();
+        sendMessage("hi");
+        val hi = 6;
+        sendMessage("hi");
+        val funny = FunnyNess {
+            level: 5,
+            message: "Hello"
+        };
+        sendFunny(funny);
+        test();
     }
+}
+
+dict FunnierFunnyNess {
+   funnyNess: FunnyNess
+}
+
+@OnPlayerSelection
+fn test() {
+   val funnier = FunnierFunnyNess {
+      funnyNess: FunnyNess {
+         level: 5,
+         message: "Hello World"
+      }
+   };
+
+   sendFunny(funnier.funnyNess);
 }

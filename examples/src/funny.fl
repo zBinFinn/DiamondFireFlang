@@ -2,7 +2,15 @@ mod funny;
 
 import std.player.sendMessage;
 
+dict FunnyNess {
+   level: Number,
+   message: String
+}
+
 @OnPlayerSelection
-fn sendFunny() {
-    sendMessage("Funny!");
+fn sendFunny(funny: FunnyNess) {
+    sendMessage("Level:");
+    sendMessage(funny.level);
+    sendMessage("Message:");
+    sendMessage(funny.message);
 }

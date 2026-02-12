@@ -9,6 +9,7 @@ enum class TokenType {
     VAL,
     MUT,
     MOD,
+    DICT,
     WITH,
     IMPORT,
     PACKAGE,
