@@ -1,12 +1,17 @@
 package com.zbinfinn.stdlib
 
 import com.zbinfinn.ast.Ast
-import com.zbinfinn.stdlib.impl.SelectDefaultPlayer
-import com.zbinfinn.stdlib.impl.SendMessage
+import com.zbinfinn.stdlib.impl.selection.SelectDefaultPlayer
+import com.zbinfinn.stdlib.impl.player.SendMessage
+import com.zbinfinn.stdlib.impl.player.ShowActionBarText
 
 object StdlibAst {
     val functions: List<StdFunction> = listOf(
-        SelectDefaultPlayer, SendMessage
+        // Player
+        SendMessage, ShowActionBarText,
+
+        // Player Selections
+        SelectDefaultPlayer
     ).map { it.invoke() }
 
     data class StdFunction(

@@ -1,7 +1,7 @@
 mod main;
 
 import std.player.sendMessage;
-import std.selection.player.defaultPlayer;
+import std.player.selection.defaultPlayer;
 
 import funny.sendFunny;
 import funny.FunnyNess;
