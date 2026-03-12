@@ -4,6 +4,7 @@ import com.zbinfinn.ast.Ast
 import com.zbinfinn.ast.Parser
 import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
+import com.zbinfinn.compiler.GlobalTypeTable
 import com.zbinfinn.dump.ActionDump
 import com.zbinfinn.emitter.DfEmitter
 import com.zbinfinn.ir.IrLowerer
@@ -11,6 +12,7 @@ import com.zbinfinn.nbt.TemplateNbtGenerator
 import com.zbinfinn.stdlib.ImportContext
 import com.zbinfinn.stdlib.StdlibAst
 import com.zbinfinn.tokenizer.Tokenizer
+import com.zbinfinn.typecheck.TypeChecker
 import java.io.File
 import kotlin.io.path.Path
 import kotlin.io.path.readText
@@ -37,12 +39,32 @@ fun main() {
     }
     registerAllStdlibAst(globals)
 
+    val typeTable = GlobalTypeTable()
+    programs.forEach { program ->
+        typeTable.register(program)
+    }
+
     println("registered functions: ")
     globals.allFunctions().forEach {
         println(it.qualifiedName)
     }
 
     val resolver = FunctionResolver(globals)
+
+    val typeChecker = TypeChecker(
+        globals = globals,
+        functionResolver = resolver,
+        typeTable = typeTable,
+    )
+
+    val typeErrors = programs.flatMap { program ->
+        typeChecker.check(program)
+    }
+
+    if (typeErrors.isNotEmpty()) {
+        typeErrors.forEach { println(it) }
+        return
+    }
 
     val irPrograms = programs.map { program ->
         IrLowerer(program, globals, resolver).lowerProgram()

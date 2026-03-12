@@ -101,6 +101,14 @@ class ParamBuilder {
         )
     }
 
+    fun any(name: String, mutable: Boolean = false) {
+        params += Ast.Parameter(
+            name = name,
+            type = Ast.Type("Any"),
+            mutable = mutable
+        )
+    }
+
     fun dict(type: String, name: String, mutable: Boolean = false) {
         params += Ast.Parameter(
             name = name,

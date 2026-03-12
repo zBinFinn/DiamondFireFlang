@@ -14,7 +14,7 @@ object SendMessage : StdFunctionProvider {
         }
 
         params {
-            string("text")
+            any("text")
         }
 
         body {

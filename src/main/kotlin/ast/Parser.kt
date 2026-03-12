@@ -113,7 +113,7 @@ class Parser(
         if (peek().type != TokenType.RPAREN) {
             do {
                 parameters.add(parseFunctionParameter())
-            } while (peek().type != TokenType.RPAREN)
+            } while (match(TokenType.COMMA))
         }
         expect(TokenType.RPAREN, "Expected ')'")
 
@@ -189,7 +189,7 @@ class Parser(
                     val expression = parseExpression()
                     expect(TokenType.SEMI, "Expected ';'")
 
-                    Ast.FieldAssignment(
+                    return Ast.FieldAssignment(
                         Ast.IdentifierExpr(identifier),
                         field,
                         expression
