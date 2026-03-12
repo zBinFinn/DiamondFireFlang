@@ -7,7 +7,7 @@ class LoweringContext {
     fun currentSelection(): SelectionType? = selectionStack.firstOrNull()
 
     fun newTempVariableName(): String {
-        return "$\$temp_${tempVariableIndex++}"
+        return "\$temp_${tempVariableIndex++}"
     }
 
     fun resetTempVariableIndex() {

@@ -4,16 +4,21 @@ import com.zbinfinn.ast.Ast
 import com.zbinfinn.ast.Parser
 import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
+import com.zbinfinn.dump.ActionDump
 import com.zbinfinn.emitter.DfEmitter
 import com.zbinfinn.ir.IrLowerer
 import com.zbinfinn.nbt.TemplateNbtGenerator
 import com.zbinfinn.stdlib.ImportContext
 import com.zbinfinn.stdlib.StdlibAst
 import com.zbinfinn.tokenizer.Tokenizer
+import java.io.File
 import kotlin.io.path.Path
 import kotlin.io.path.readText
 
 fun main() {
+    ActionDump.parse(File("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\src\\main\\resources\\action_dump.json"))
+    println(ActionDump.get().actions)
+
     // TODO: I love hardcoding file paths
     val sourceFiles = listOf(
         Path("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\examples\\src\\funny.fl"),
