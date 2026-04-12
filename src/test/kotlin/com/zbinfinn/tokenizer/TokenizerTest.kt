@@ -1,0 +1,25 @@
+package com.zbinfinn.tokenizer
+
+import kotlin.test.Test
+import kotlin.test.assertTrue
+
+class TokenizerTest {
+
+    @Test
+    fun `tokenizer handles boolean operators without looping`() {
+        val code = """
+            mod main;
+            fn f() {
+                val a = true;
+                val b = false;
+                if (a && b || !a) { }
+            }
+        """.trimIndent()
+
+        val tokens = Tokenizer(code).tokenize()
+        assertTrue(tokens.any { it.type == TokenType.ANDAND })
+        assertTrue(tokens.any { it.type == TokenType.OROR })
+        assertTrue(tokens.any { it.type == TokenType.BANG })
+    }
+}
+
