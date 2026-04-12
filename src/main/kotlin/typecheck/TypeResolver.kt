@@ -11,6 +11,7 @@ class TypeResolver(
         return when (id) {
             "String" -> Type.StringType
             "Number" -> Type.NumberType
+            "Boolean", "boolean" -> Type.BooleanType
             "Any" -> Type.AnyType
             else -> {
                 val symbol = typeTable.resolve(id, program)

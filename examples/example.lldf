@@ -22,6 +22,10 @@ ip = If Player
 ig = If Game
 iv = If Var
 
+ip, ig and iv support:
+iv NOT [...]
+to invert the condition
+
 ilp = If Left Paren
 irp = If Right Paren
 rlp = Repeat Left Paren

@@ -176,6 +176,10 @@ class Parser(
                 return Ast.WithBlock(functionCall, block)
             }
 
+            TokenType.IF -> {
+                return parseIfStmt()
+            }
+
             TokenType.IDENT -> {
                 if (canPeek(3u)
                     && peek(1).type == TokenType.DOT
@@ -208,6 +212,42 @@ class Parser(
     }
 
     private fun parseExpression(): Ast.Expr {
+        return parseOrExpression()
+    }
+
+    private fun parseOrExpression(): Ast.Expr {
+        var expr = parseAndExpression()
+        while (match(TokenType.OROR)) {
+            val right = parseAndExpression()
+            expr = Ast.BinaryExpr(expr, Ast.BinaryOp.OrOr, right)
+        }
+        return expr
+    }
+
+    private fun parseAndExpression(): Ast.Expr {
+        var expr = parseEqualityExpression()
+        while (match(TokenType.ANDAND)) {
+            val right = parseEqualityExpression()
+            expr = Ast.BinaryExpr(expr, Ast.BinaryOp.AndAnd, right)
+        }
+        return expr
+    }
+
+    private fun parseEqualityExpression(): Ast.Expr {
+        var expr = parseUnaryExpression()
+        while (true) {
+            expr = when {
+                match(TokenType.EQEQ) -> Ast.BinaryExpr(expr, Ast.BinaryOp.EqEq, parseUnaryExpression())
+                match(TokenType.NEQ) -> Ast.BinaryExpr(expr, Ast.BinaryOp.Neq, parseUnaryExpression())
+                else -> return expr
+            }
+        }
+    }
+
+    private fun parseUnaryExpression(): Ast.Expr {
+        if (match(TokenType.BANG)) {
+            return Ast.UnaryExpr(Ast.UnaryOp.Not, parseUnaryExpression())
+        }
         return parsePostfixExpression()
     }
 
@@ -230,6 +270,14 @@ class Parser(
         return when (peek().type) {
             TokenType.STRING_LIT -> Ast.StringExpr(consume().lexeme)
             TokenType.NUMBER_LIT -> Ast.NumberExpr(consume().lexeme.toDouble())
+            TokenType.TRUE -> {
+                consume()
+                Ast.BoolExpr(true)
+            }
+            TokenType.FALSE -> {
+                consume()
+                Ast.BoolExpr(false)
+            }
             TokenType.IDENT -> {
                 val identifier = consume().lexeme
                 if (match(TokenType.LBRACE)) {
@@ -254,6 +302,26 @@ class Parser(
 
             else -> error("Unexpected Token ${peek()} for expression")
         }
+    }
+
+    private fun parseIfStmt(): Ast.IfStmt {
+        expect(TokenType.IF, "Expected 'if'")
+        expect(TokenType.LPAREN, "Expected '(' after 'if'")
+        val condition = parseExpression()
+        expect(TokenType.RPAREN, "Expected ')' after if condition")
+        val thenBlock = parseBlock()
+
+        val elseBranch = if (match(TokenType.ELSE)) {
+            if (peek().type == TokenType.IF) {
+                Ast.IfStmt.ElseBranch.ElseIf(parseIfStmt())
+            } else {
+                Ast.IfStmt.ElseBranch.Else(parseBlock())
+            }
+        } else {
+            null
+        }
+
+        return Ast.IfStmt(condition, thenBlock, elseBranch)
     }
 
     private fun parseDictLiteralEntry(): Ast.DictLiteralExpr.Entry {

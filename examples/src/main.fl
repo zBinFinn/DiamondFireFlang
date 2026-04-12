@@ -8,6 +8,33 @@ import funny.FunnyNess;
 
 @PlayerEvent("Join")
 fn join() {
+    val test = true;
+    val test2 = false;
+    with defaultPlayer() {
+        sendMessage("Test 1");
+    }
+    if (test && test2) {
+        with defaultPlayer() {
+            sendMessage("test && test2");
+        }
+    }
+    with defaultPlayer() {
+            sendMessage("Test 2");
+    }
+    if (test || test2) {
+        with defaultPlayer() {
+            sendMessage("test || test2");
+        }
+    }
+    with defaultPlayer() {
+            sendMessage("Test 3");
+    }
+    if (true) {
+        with defaultPlayer() {
+            sendMessage("true");
+        }
+    }
+
     val x = 5;
     with defaultPlayer() {
         sendMessage("hi");

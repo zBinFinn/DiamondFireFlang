@@ -5,6 +5,7 @@ import com.zbinfinn.ast.Ast
 sealed interface Type {
     data object StringType : Type
     data object NumberType : Type
+    data object BooleanType : Type
     data object AnyType : Type
 
     data class Dict(

@@ -89,6 +89,17 @@ object Ast {
         val value: Expr
     ) : Statement
 
+    data class IfStmt(
+        val condition: Expr,
+        val thenBlock: Block,
+        val elseBranch: ElseBranch?
+    ) : Statement {
+        sealed interface ElseBranch {
+            data class ElseIf(val stmt: IfStmt) : ElseBranch
+            data class Else(val block: Block) : ElseBranch
+        }
+    }
+
     sealed interface Expr : AstNode
 
     data class StringExpr(
@@ -101,6 +112,25 @@ object Ast {
 
     data class IdentifierExpr(
         val name: String,
+    ) : Expr
+
+    data class BoolExpr(
+        val value: Boolean
+    ) : Expr
+
+    enum class UnaryOp { Not }
+
+    data class UnaryExpr(
+        val op: UnaryOp,
+        val expr: Expr
+    ) : Expr
+
+    enum class BinaryOp { EqEq, Neq, AndAnd, OrOr }
+
+    data class BinaryExpr(
+        val left: Expr,
+        val op: BinaryOp,
+        val right: Expr
     ) : Expr
 
     data class DictLiteralExpr(

@@ -13,9 +13,18 @@ enum class TokenType {
     WITH,
     IMPORT,
     PACKAGE,
+    IF,
+    ELSE,
+    TRUE,
+    FALSE,
 
     AT, // @
     EQ, // =
+    EQEQ, // ==
+    NEQ, // !=
+    ANDAND, // &&
+    OROR, // ||
+    BANG, // !
     DOT, // .
     COMMA, // ,
     SEMI, // ;
@@ -23,7 +32,7 @@ enum class TokenType {
     LPAREN, // (
     RPAREN, // )
     LBRACE, // {
-
     RBRACE, // }
+
     EOF,
 }

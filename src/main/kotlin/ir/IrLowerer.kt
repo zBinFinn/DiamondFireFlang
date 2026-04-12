@@ -210,7 +210,228 @@ class IrLowerer(
                     error("Only simple dict field assignment supported for now")
                 }
             }
+
+            is Ast.IfStmt -> {
+                emitIf(stmt, symbols, out, context)
+            }
         }
+    }
+
+    private fun emitIf(
+        stmt: Ast.IfStmt,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ) {
+        val condition = stmt.condition
+
+        val gate = buildIfGate(condition, symbols, out, context)
+        out += gate
+        out += Ir.OpenBracket
+        for (inner in stmt.thenBlock.statements) {
+            lowerStatement(inner, symbols, out, context)
+        }
+        out += Ir.CloseBracket
+
+        when (val elseBranch = stmt.elseBranch) {
+            null -> {}
+
+            is Ast.IfStmt.ElseBranch.Else -> {
+                out += Ir.ElseMarker
+                out += Ir.OpenBracket
+                for (inner in elseBranch.block.statements) {
+                    lowerStatement(inner, symbols, out, context)
+                }
+                out += Ir.CloseBracket
+            }
+
+            is Ast.IfStmt.ElseBranch.ElseIf -> {
+                out += Ir.ElseMarker
+                out += Ir.OpenBracket
+                emitIf(elseBranch.stmt, symbols, out, context)
+                out += Ir.CloseBracket
+            }
+        }
+    }
+
+    private fun buildIfGate(
+        condition: Ast.Expr,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ): Ir.IfVarAction {
+        return when (condition) {
+            is Ast.BinaryExpr -> when (condition.op) {
+                Ast.BinaryOp.OrOr -> {
+                    val terms = flatten(condition, Ast.BinaryOp.OrOr)
+                    val values = terms.map { lowerBoolExprToValue(it, symbols, out, context) }
+                    Ir.IfVarAction(
+                        actionName = "=",
+                        args = listOf(Ir.NumberValue(1)).plus(values),
+                        negated = false
+                    )
+                }
+
+                Ast.BinaryOp.AndAnd -> {
+                    val terms = flatten(condition, Ast.BinaryOp.AndAnd)
+                    val values = terms.map { lowerBoolExprToValue(it, symbols, out, context) }
+                    Ir.IfVarAction(
+                        actionName = "=",
+                        args = listOf(Ir.NumberValue(0)).plus(values),
+                        negated = true
+                    )
+                }
+
+                else -> {
+                    val value = lowerBoolExprToValue(condition, symbols, out, context)
+                    Ir.IfVarAction(
+                        actionName = "=",
+                        args = listOf(Ir.NumberValue(0), value),
+                        negated = true
+                    )
+                }
+            }
+
+            else -> {
+                val value = lowerBoolExprToValue(condition, symbols, out, context)
+                Ir.IfVarAction(
+                    actionName = "=",
+                    args = listOf(Ir.NumberValue(0), value),
+                    negated = true
+                )
+            }
+        }
+    }
+
+    private fun flatten(expr: Ast.Expr, op: Ast.BinaryOp): List<Ast.Expr> {
+        if (expr is Ast.BinaryExpr && expr.op == op) {
+            return flatten(expr.left, op) + flatten(expr.right, op)
+        }
+        return listOf(expr)
+    }
+
+    private fun lowerValueExpr(
+        expr: Ast.Expr,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ): Ir.Value {
+        return when (expr) {
+            is Ast.BoolExpr,
+            is Ast.UnaryExpr,
+            is Ast.BinaryExpr -> lowerBoolExprToValue(expr, symbols, out, context)
+
+            else -> lowerExpr(expr, symbols, out, context)
+        }
+    }
+
+    private fun lowerBoolExprToValue(
+        expr: Ast.Expr,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ): Ir.Value {
+        return when (expr) {
+            is Ast.BoolExpr -> Ir.NumberValue(if (expr.value) 1 else 0)
+
+            is Ast.IdentifierExpr -> {
+                symbols.resolve(expr.name)
+                Ir.Variable(expr.name)
+            }
+
+            is Ast.UnaryExpr -> {
+                val inner = lowerBoolExprToValue(expr.expr, symbols, out, context)
+                when (expr.op) {
+                    Ast.UnaryOp.Not -> comparisonToTemp("=", Ir.NumberValue(0), inner, out, context)
+                }
+            }
+
+            is Ast.BinaryExpr -> {
+                when (expr.op) {
+                    Ast.BinaryOp.EqEq -> comparisonToTemp("=", lowerValueExpr(expr.left, symbols, out, context), lowerValueExpr(expr.right, symbols, out, context), out, context)
+                    Ast.BinaryOp.Neq -> comparisonToTemp("!=", lowerValueExpr(expr.left, symbols, out, context), lowerValueExpr(expr.right, symbols, out, context), out, context)
+                    Ast.BinaryOp.AndAnd -> {
+                        val terms = flatten(expr, Ast.BinaryOp.AndAnd)
+                        val values = terms.map { lowerBoolExprToValue(it, symbols, out, context) }
+                        gateToTemp(isAnd = true, values = values, out = out, context = context)
+                    }
+
+                    Ast.BinaryOp.OrOr -> {
+                        val terms = flatten(expr, Ast.BinaryOp.OrOr)
+                        val values = terms.map { lowerBoolExprToValue(it, symbols, out, context) }
+                        gateToTemp(isAnd = false, values = values, out = out, context = context)
+                    }
+                }
+            }
+
+            else -> error("Unsupported boolean expression $expr")
+        }
+    }
+
+    private fun gateToTemp(
+        isAnd: Boolean,
+        values: List<Ir.Value>,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ): Ir.Variable {
+        val temp = context.newTempVariableName()
+        out += Ir.SetVariableAction(
+            actionName = "=",
+            args = listOf(Ir.Variable(temp), Ir.NumberValue(0)),
+            tags = emptyList()
+        )
+
+        val gate = if (isAnd) {
+            Ir.IfVarAction(
+                actionName = "=",
+                args = listOf(Ir.NumberValue(0)).plus(values),
+                negated = true
+            )
+        } else {
+            Ir.IfVarAction(
+                actionName = "=",
+                args = listOf(Ir.NumberValue(1)).plus(values),
+                negated = false
+            )
+        }
+
+        out += gate
+        out += Ir.OpenBracket
+        out += Ir.SetVariableAction(
+            actionName = "=",
+            args = listOf(Ir.Variable(temp), Ir.NumberValue(1)),
+            tags = emptyList()
+        )
+        out += Ir.CloseBracket
+        return Ir.Variable(temp)
+    }
+
+    private fun comparisonToTemp(
+        actionName: String,
+        left: Ir.Value,
+        right: Ir.Value,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ): Ir.Variable {
+        val temp = context.newTempVariableName()
+        out += Ir.SetVariableAction(
+            actionName = "=",
+            args = listOf(Ir.Variable(temp), Ir.NumberValue(0)),
+            tags = emptyList()
+        )
+        out += Ir.IfVarAction(
+            actionName = actionName,
+            args = listOf(left, right),
+            negated = false
+        )
+        out += Ir.OpenBracket
+        out += Ir.SetVariableAction(
+            actionName = "=",
+            args = listOf(Ir.Variable(temp), Ir.NumberValue(1)),
+            tags = emptyList()
+        )
+        out += Ir.CloseBracket
+        return Ir.Variable(temp)
     }
 
     private fun lowerFunctionCall(
@@ -246,6 +467,9 @@ class IrLowerer(
         return when (expr) {
             is Ast.StringExpr -> Ir.StringValue(expr.value)
             is Ast.NumberExpr -> Ir.NumberValue(expr.value)
+            is Ast.BoolExpr,
+            is Ast.UnaryExpr,
+            is Ast.BinaryExpr -> lowerBoolExprToValue(expr, symbols, out, context)
             is Ast.IdentifierExpr -> {
                 symbols.resolve(expr.name)
                 Ir.Variable(expr.name)

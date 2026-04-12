@@ -25,10 +25,11 @@ class Tokenizer(
         "with" to TokenType.WITH,
         "import" to TokenType.IMPORT,
         "package" to TokenType.PACKAGE,
+        "if" to TokenType.IF,
+        "else" to TokenType.ELSE,
+        "true" to TokenType.TRUE,
+        "false" to TokenType.FALSE,
     )
-
-    private val allowedIdentifierLetters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        .toCharArray()
 
     var tokens = mutableListOf<Token>()
     var index: Int = 0;
@@ -47,6 +48,37 @@ class Tokenizer(
 
     private fun process() {
         val peeked = peek();
+
+        if (peeked == '&' && canPeek(ahead = 1) && peek(ahead = 1) == '&') {
+            consumeMultiple(2)
+            addToken(TokenType.ANDAND, "&&")
+            return
+        }
+
+        if (peeked == '|' && canPeek(ahead = 1) && peek(ahead = 1) == '|') {
+            consumeMultiple(2)
+            addToken(TokenType.OROR, "||")
+            return
+        }
+
+        if (peeked == '=' && canPeek(ahead = 1) && peek(ahead = 1) == '=') {
+            consumeMultiple(2)
+            addToken(TokenType.EQEQ, "==")
+            return
+        }
+
+        if (peeked == '!' && canPeek(ahead = 1) && peek(ahead = 1) == '=') {
+            consumeMultiple(2)
+            addToken(TokenType.NEQ, "!=")
+            return
+        }
+
+        if (peeked == '!') {
+            consume()
+            addToken(TokenType.BANG, "!")
+            return
+        }
+
         if (oneCharTokens.contains(peeked)) {
             addTokenConsumeOne(oneCharTokens[peeked]!!, peeked.toString())
             return;
@@ -88,8 +120,14 @@ class Tokenizer(
                 }
 
                 val buffer = StringBuffer()
-                while (canPeek() && allowedIdentifierLetters.contains(peek())) { // TODO properly care for identifier rules
+                while (canPeek() && (peek().isLetterOrDigit() || peek() == '_')) { // TODO properly care for identifier rules
                     buffer.append(consume())
+                }
+
+                if (buffer.isEmpty()) {
+                    // Ensure we always advance; otherwise the tokenizer will infinite-loop on unexpected characters.
+                    val unexpected = consume()
+                    error("Unexpected character '$unexpected' at index $index")
                 }
 
                 val buffered = buffer.toString()
@@ -130,7 +168,6 @@ class Tokenizer(
     }
 
     private fun consumeMultiple(amount: Int) {
-        println("Consumed ${content.substring(index, index + amount)}")
         index += amount
     }
 }

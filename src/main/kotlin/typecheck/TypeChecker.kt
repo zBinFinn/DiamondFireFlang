@@ -121,7 +121,7 @@ class TypeChecker(
                         }
                     }
 
-                    Type.StringType, Type.NumberType -> {
+                    Type.StringType, Type.NumberType, Type.BooleanType -> {
                         diags += Diagnostic(
                             message = "Cannot assign field '${stmt.field}' on non-dict type ${render(recvType)}.",
                             module = program.module.path,
@@ -156,6 +156,34 @@ class TypeChecker(
 
             is Ast.InlineIr -> {
                 // No type information to check inside inline IR
+            }
+
+            is Ast.IfStmt -> {
+                val condType = checkExpr(stmt.condition, program, functionName, env, diags)
+                if (condType != Type.BooleanType && condType != Type.Error) {
+                    diags += Diagnostic(
+                        message = "If condition must be Boolean but got ${render(condType)}.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                }
+
+                for (inner in stmt.thenBlock.statements) {
+                    checkStatement(inner, program, functionName, env, diags)
+                }
+
+                when (val elseBranch = stmt.elseBranch) {
+                    null -> {}
+                    is Ast.IfStmt.ElseBranch.Else -> {
+                        for (inner in elseBranch.block.statements) {
+                            checkStatement(inner, program, functionName, env, diags)
+                        }
+                    }
+
+                    is Ast.IfStmt.ElseBranch.ElseIf -> {
+                        checkStatement(elseBranch.stmt, program, functionName, env, diags)
+                    }
+                }
             }
         }
     }
@@ -213,6 +241,7 @@ class TypeChecker(
         return when (expr) {
             is Ast.StringExpr -> Type.StringType
             is Ast.NumberExpr -> Type.NumberType
+            is Ast.BoolExpr -> Type.BooleanType
 
             is Ast.IdentifierExpr -> {
                 env[expr.name] ?: run {
@@ -253,7 +282,7 @@ class TypeChecker(
                         }
                     }
 
-                    Type.StringType, Type.NumberType -> {
+                    Type.StringType, Type.NumberType, Type.BooleanType -> {
                         diags += Diagnostic(
                             message = "Cannot access field '${expr.field}' on non-dict type ${render(recvType)}.",
                             module = program.module.path,
@@ -263,6 +292,53 @@ class TypeChecker(
                     }
 
                     Type.Error -> Type.Error
+                }
+            }
+
+            is Ast.UnaryExpr -> {
+                val t = checkExpr(expr.expr, program, functionName, env, diags)
+                if (expr.op == Ast.UnaryOp.Not && t != Type.BooleanType && t != Type.Error) {
+                    diags += Diagnostic(
+                        message = "Operator '!' expects Boolean but got ${render(t)}.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                }
+                Type.BooleanType
+            }
+
+            is Ast.BinaryExpr -> {
+                val left = checkExpr(expr.left, program, functionName, env, diags)
+                val right = checkExpr(expr.right, program, functionName, env, diags)
+                when (expr.op) {
+                    Ast.BinaryOp.EqEq, Ast.BinaryOp.Neq -> {
+                        if (!isAssignable(left, right) && !isAssignable(right, left) && left != Type.Error && right != Type.Error) {
+                            diags += Diagnostic(
+                                message = "Cannot compare ${render(left)} and ${render(right)}.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
+                        Type.BooleanType
+                    }
+
+                    Ast.BinaryOp.AndAnd, Ast.BinaryOp.OrOr -> {
+                        if (left != Type.BooleanType && left != Type.Error) {
+                            diags += Diagnostic(
+                                message = "Operator '${if (expr.op == Ast.BinaryOp.AndAnd) "&&" else "||"}' expects Boolean on left but got ${render(left)}.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
+                        if (right != Type.BooleanType && right != Type.Error) {
+                            diags += Diagnostic(
+                                message = "Operator '${if (expr.op == Ast.BinaryOp.AndAnd) "&&" else "||"}' expects Boolean on right but got ${render(right)}.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
+                        Type.BooleanType
+                    }
                 }
             }
         }
@@ -359,6 +435,7 @@ class TypeChecker(
         return when (t) {
             Type.StringType -> "String"
             Type.NumberType -> "Number"
+            Type.BooleanType -> "Boolean"
             Type.AnyType -> "Any"
             Type.Error -> "<error>"
             is Type.Dict -> t.qualifiedName

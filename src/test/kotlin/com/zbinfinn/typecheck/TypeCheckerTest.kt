@@ -111,5 +111,16 @@ class TypeCheckerTest {
 
         assertTrue(diags.any { it.message.contains("expects 2 argument") })
     }
-}
 
+    @Test
+    fun `if condition must be Boolean`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn f() { if (5) { } }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("If condition must be Boolean") })
+    }
+}

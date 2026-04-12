@@ -58,6 +58,9 @@ class DfEmitter {
         when (instr) {
             is Ir.SimpleAction -> emitSimpleAction(instr, sb)
             is Ir.InlineIr -> emitInlineIr(instr, sb)
+            Ir.OpenBracket -> sb.appendLine("{")
+            Ir.CloseBracket -> sb.appendLine("}")
+            Ir.ElseMarker -> sb.appendLine("else")
         }
     }
 
@@ -71,6 +74,9 @@ class DfEmitter {
     ) {
         sb.append(instr.blockIrName) // pa
         sb.append(" ")
+        if (instr.negated) {
+            sb.append("NOT ")
+        }
         sb.append("\"${instr.actionName}\"") // "SendMessage"
         sb.append(" ")
         if (instr.subAction != null) {

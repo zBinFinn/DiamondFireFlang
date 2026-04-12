@@ -1,0 +1,17 @@
+```
+event Join {
+    Console.log("Balls")
+}
+```
+
+// Tokenize
+EVENT            "event"
+IDENT            "Join"
+LBRACE           "{"
+IDENT            "Console"
+DOT              "."
+IDENT            "log"
+LPAREN           "("
+STRING_LIT       "Balls"
+RPAREN           ")"
+RBRACE           "}"

@@ -9,9 +9,13 @@ class TemplateNbtGenerator(
     private val source: String
 ) {
     fun generate(): List<JsonObject> {
-        return generateCode().mapIndexed { index, compressedCode ->
+        val rawTemplates = generateRaw()
+        return rawTemplates.mapIndexed { index, raw ->
+            val compressedCode = String(raw.toString().toByteArray().toGzip().toBase64())
+            val templateName = templateName(raw, index)
+
             val templateJson = JsonObject()
-            templateJson.addProperty("name", "Flang - $index")
+            templateJson.addProperty("name", templateName)
             templateJson.addProperty("author", "Flang")
             templateJson.addProperty("version", 1)
             templateJson.addProperty("code", compressedCode)
@@ -20,13 +24,26 @@ class TemplateNbtGenerator(
         }
     }
 
-    private fun generateCode(): List<String> {
-        return generateRaw().map {
-            String(it.toString().toByteArray().toGzip().toBase64())
+    private fun templateName(raw: JsonObject, index: Int): String {
+        val blocks = raw.getAsJsonArray("blocks")
+        if (blocks.size() == 0) return "Flang - $index"
+
+        val first = blocks[0].asJsonObject
+        val blockType = first["block"]?.asString
+        val suffix = when (blockType) {
+            "func" -> first["data"]?.asString
+            "event" -> first["action"]?.asString?.let { "event.$it" }
+            else -> null
+        }
+
+        return if (!suffix.isNullOrBlank()) {
+            "Flang - $suffix"
+        } else {
+            "Flang - $index"
         }
     }
 
-    private fun generateRaw(): List<JsonObject> {
+    internal fun generateRaw(): List<JsonObject> {
         val toProcess = mutableListOf<String>()
         val processed = mutableListOf<JsonObject>()
         for (line in source.lines()) {
@@ -61,10 +78,38 @@ class TemplateNbtGenerator(
     }
 
     private val lineRegex = Pattern.compile(
-        """^(?<type>\w+)\s+"(?<action>[^"]+)"(?:\s+args\((?<args>[^)]*)\))?\s*(?:tags\((?<tags>.*)\))?$"""
+        """^(?<type>\w+)(?:\s+(?<not>NOT))?\s+"(?<action>[^"]+)"(?:\s+args\((?<args>[^)]*)\))?\s*(?:tags\((?<tags>.*)\))?$"""
     )
 
     private fun processBlock(line: String): JsonObject {
+        when (line) {
+            "{" -> {
+                val json = JsonObject()
+                json.addProperty("id", "bracket")
+                json.addProperty("direct", "open")
+                json.addProperty("type", "norm")
+                return json
+            }
+
+            "}" -> {
+                val json = JsonObject()
+                json.addProperty("id", "bracket")
+                json.addProperty("direct", "close")
+                json.addProperty("type", "norm")
+                return json
+            }
+
+            "else" -> {
+                val json = JsonObject()
+                json.addProperty("id", "block")
+                json.addProperty("block", "else")
+                val args = JsonObject()
+                args.add("items", JsonArray())
+                json.add("args", args)
+                return json
+            }
+        }
+
         val json = JsonObject()
         val matcher = lineRegex.matcher(line)
         if (!matcher.find()) {
@@ -72,18 +117,22 @@ class TemplateNbtGenerator(
         }
 
         val type = matcher.group("type")
+        val inverted = matcher.group("not") != null
         val action = matcher.group("action")
         val args: String? = matcher.group("args")
         val tags: String? = matcher.group("tags")
         println("Currently Processing: $type $action: $args | $tags")
         when (type) {
-            "pe", "pa", "sv", "cf", "so", "sp", "fn", "pr" -> {
+            "pe", "pa", "sv", "cf", "so", "sp", "fn", "pr", "iv" -> {
                 json.addProperty("id", "block")
                 json.addProperty("block", mapIdentifierToDfIdentifier(type))
                 json.add("args", processArgsAndTags(args, tags, mapIdentifierToDfIdentifier(type), if (setOf("fn", "pr", "sp", "cf").contains(type)) { "dynamic" } else { action } ))
+                if (inverted) {
+                    json.addProperty("attribute", "NOT")
+                }
                 when (type) {
                     "cf", "sp", "fn", "pr" -> json.addProperty("data", action)
-                    "pe", "pa", "sv", "so" -> json.addProperty("action", action)
+                    "pe", "pa", "sv", "so", "iv" -> json.addProperty("action", action)
                     else -> throw UnexpectedException("Unknown starter $type")
                 }
             }
@@ -203,6 +252,7 @@ class TemplateNbtGenerator(
             "so" -> "select_obj"
             "sv" -> "set_var"
             "fn" -> "func"
+            "iv" -> "if_var"
             else -> throw UnexpectedException("Identifier $identifier not yet supported.")
         }
     }

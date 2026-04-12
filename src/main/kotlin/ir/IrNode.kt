@@ -35,6 +35,10 @@ object Ir {
 
     sealed interface Instr
 
+    data object OpenBracket : Instr
+    data object CloseBracket : Instr
+    data object ElseMarker : Instr
+
     data class Tag(
         val slot: Int,
         val name: String,
@@ -49,6 +53,7 @@ object Ir {
         open val args: List<Value> = emptyList()
         open val tags: List<Tag> = emptyList()
         open val target: Target? = null
+        open val negated: Boolean = false
     }
 
     data class InlineIr(
@@ -61,6 +66,13 @@ object Ir {
         override val args: List<Value>,
         override val tags: List<Tag>
     ) : SimpleAction("so")
+
+    data class IfVarAction(
+        override val actionName: String,
+        override val args: List<Value>,
+        override val tags: List<Tag> = emptyList(),
+        override val negated: Boolean = false
+    ) : SimpleAction("iv")
 
     data class CallFunction(
         override val actionName: String,
