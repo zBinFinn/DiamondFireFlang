@@ -2,7 +2,6 @@ package com.zbinfinn.nbt
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class TemplateNbtGeneratorTest {
 
@@ -23,7 +22,7 @@ class TemplateNbtGeneratorTest {
         assertEquals("block", ifVar["id"].asString)
         assertEquals("if_var", ifVar["block"].asString)
         assertEquals("=", ifVar["action"].asString)
-        assertTrue(ifVar["inverted"].asBoolean)
+        assertEquals("NOT", ifVar["attribute"].asString)
 
         val open = blocks[2].asJsonObject
         assertEquals("bracket", open["id"].asString)

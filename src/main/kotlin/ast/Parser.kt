@@ -117,9 +117,15 @@ class Parser(
         }
         expect(TokenType.RPAREN, "Expected ')'")
 
+        val returnType = if (match(TokenType.COLON)) {
+            parseType()
+        } else {
+            null
+        }
+
         val block = parseBlock()
 
-        return Ast.FunctionDecl(name, annotations, parameters, block)
+        return Ast.FunctionDecl(name, annotations, parameters, returnType, block)
     }
 
     private fun parseBlock(): Ast.Block {
@@ -178,6 +184,13 @@ class Parser(
 
             TokenType.IF -> {
                 return parseIfStmt()
+            }
+
+            TokenType.RETURN -> {
+                consume()
+                val expression = parseExpression()
+                expect(TokenType.SEMI, "Expected ';'")
+                return Ast.ReturnStmt(expression)
             }
 
             TokenType.IDENT -> {
@@ -288,6 +301,18 @@ class Parser(
                     expect(TokenType.RBRACE, "Expected '}'")
 
                     return Ast.DictLiteralExpr(identifier, entries)
+                }
+
+                if (match(TokenType.LPAREN)) {
+                    val arguments = mutableListOf<Ast.Expr>()
+                    if (!match(TokenType.RPAREN)) {
+                        do {
+                            arguments += parseExpression()
+                        } while (match(TokenType.COMMA))
+                        expect(TokenType.RPAREN, "Expected ')'")
+                    }
+
+                    return Ast.FunctionCallExpr(identifier, arguments)
                 }
 
                 return Ast.IdentifierExpr(identifier)

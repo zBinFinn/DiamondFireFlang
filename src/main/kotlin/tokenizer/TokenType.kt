@@ -15,6 +15,7 @@ enum class TokenType {
     PACKAGE,
     IF,
     ELSE,
+    RETURN,
     TRUE,
     FALSE,
 

@@ -52,6 +52,7 @@ class FunctionBuilder(
                 name = name,
                 annotations = annotations,
                 parameters = params,
+                returnType = null,
                 body = Ast.Block(statements = bodyStatements),
             )
         )

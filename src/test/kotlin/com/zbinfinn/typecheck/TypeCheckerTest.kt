@@ -123,4 +123,80 @@ class TypeCheckerTest {
 
         assertTrue(diags.any { it.message.contains("If condition must be Boolean") })
     }
+
+    @Test
+    fun `returning function can be used as expression`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn get5(): Number { return 5; }
+            fn f() {
+                val x = get5();
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.isEmpty(), "Expected no type errors, got: ${diags.joinToString()}")
+    }
+
+    @Test
+    fun `return type mismatch is rejected`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn get5(): Number { return "five"; }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("Cannot return String") })
+    }
+
+    @Test
+    fun `returning function must return on every path`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn maybe(test: Boolean): Number {
+                if (test) {
+                    return 1;
+                }
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("must return a value on every path") })
+    }
+
+    @Test
+    fun `if else returning on both branches satisfies every path check`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn pick(test: Boolean): Number {
+                if (test) {
+                    return 1;
+                } else {
+                    return 2;
+                }
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.isEmpty(), "Expected no type errors, got: ${diags.joinToString()}")
+    }
+
+    @Test
+    fun `void function cannot be used as expression`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn sideEffect() {}
+            fn f() {
+                val x = sideEffect();
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("does not return a value") })
+    }
 }

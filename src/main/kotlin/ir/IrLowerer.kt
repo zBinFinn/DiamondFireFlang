@@ -4,6 +4,7 @@ import com.zbinfinn.ast.Ast
 import com.zbinfinn.common.EntityEventAnnotation
 import com.zbinfinn.common.EventAnnotation
 import com.zbinfinn.common.PlayerEventAnnotation
+import com.zbinfinn.common.functionKind
 import com.zbinfinn.common.parseEventAnnotation
 import com.zbinfinn.common.requiredSelectionType
 import com.zbinfinn.common.requiresSelection
@@ -18,6 +19,10 @@ class IrLowerer(
     private val globals: GlobalFunctionTable,
     private val functionResolver: FunctionResolver
 ) {
+    private companion object {
+        const val RETURN_PARAMETER_NAME = "\$return"
+    }
+
     private val importContext = ImportContext(astProgram.imports.map { it.path })
     private val functionTable: Map<String, FunctionInfo> = buildFunctionTable()
 
@@ -25,7 +30,7 @@ class IrLowerer(
         val table = mutableMapOf<String, FunctionInfo>()
 
         for (fn in astProgram.functions) {
-            table[fn.name] = FunctionInfo(fn, FunctionSource.User)
+            table[fn.name] = FunctionInfo(fn, astProgram.module.path, FunctionSource.User)
         }
 
         for (stdFn in StdlibAst.functions) {
@@ -33,7 +38,7 @@ class IrLowerer(
             val import = stdFn.importPath
 
             if (importContext.isImported(import)) {
-                table[fn.name] = FunctionInfo(fn, FunctionSource.Std)
+                table[fn.name] = FunctionInfo(fn, import.substringBeforeLast("."), FunctionSource.Std)
             }
         }
 
@@ -51,12 +56,12 @@ class IrLowerer(
             if (event != null) {
                 entryPoints += lowerEvent(function, event, context)
             } else {
-                functions += lowerFunction(function, context)
+                functions += lowerFunction(function, astProgram.module.path, context)
             }
         }
 
-        for (fn in functionTable.values.filter { it.source == FunctionSource.Std }.map { it.decl }) {
-            functions += lowerFunction(fn, context)
+        for (fn in functionTable.values.filter { it.source == FunctionSource.Std }) {
+            functions += lowerFunction(fn.decl, fn.modulePath, context)
         }
 
         return Ir.Program(entryPoints, functions)
@@ -87,19 +92,12 @@ class IrLowerer(
         }
     }
 
-    private fun lowerFunction(function: Ast.FunctionDecl, context: LoweringContext): Ir.Function {
+    private fun lowerFunction(function: Ast.FunctionDecl, modulePath: String, context: LoweringContext): Ir.Function {
         context.resetTempVariableIndex()
-        if (function.annotations.any {
-                setOf("OnPlayerSelection", "OnEntitySelection").contains(it.name) &&
-                        setOf("PlayerSelector", "EntitySelector").contains(it.name)
-            }) {
-
-            error("Functions may not be both @On<Something>Selection and @<Something>Selector")
-        }
 
         val requiresSelection = requiresSelection(function)
         if (requiresSelection && function.body.statements.isEmpty()) {
-            error("@OnPlayerSelection function '${function.name}' must have a body")
+            error("Selection handler function '${function.name}' must have a body")
         }
 
         val symbols = SymbolTable()
@@ -108,6 +106,11 @@ class IrLowerer(
         val parameters = mutableListOf<Ir.Parameter>()
         for (param in function.parameters) {
             parameters += lowerParameter(param)
+            symbols.define(param.name, mutable = param.mutable)
+        }
+        if (function.returnType != null) {
+            parameters += Ir.Parameter(RETURN_PARAMETER_NAME, mutable = true)
+            symbols.define(RETURN_PARAMETER_NAME, mutable = true)
         }
 
         val requiredSelection = requiredSelectionType(function)
@@ -123,7 +126,8 @@ class IrLowerer(
             context.selectionStack.removeLast()
         }
 
-        val functionSymbol = functionResolver.resolve(function.name, astProgram)
+        val functionSymbol = globals.resolveInModule(modulePath, function.name, functionKind(function))
+            ?: error("Registered symbol for function '${function.name}' not found")
         return Ir.Function(functionSymbol.qualifiedName, parameters, body)
     }
 
@@ -158,11 +162,21 @@ class IrLowerer(
             is Ast.WithBlock -> {
                 val selectorCall = stmt.selectorFunction
 
-                val selectorFunction = functionResolver.resolve(selectorCall.name, astProgram)
+                val selectorFunction = functionResolver.resolve(
+                    selectorCall.name,
+                    astProgram,
+                    FunctionResolver.Context.Selector
+                )
 
                 val type = selectorType(selectorFunction.decl) ?: error("Unknown selector '${selectorCall.name}'")
 
-                lowerFunctionCall(stmt.selectorFunction, out, symbols, context)
+                lowerFunctionCall(
+                    stmt.selectorFunction,
+                    out,
+                    symbols,
+                    context,
+                    FunctionResolver.Context.Selector
+                )
 
                 context.selectionStack.addLast(type)
                 for (stmt in stmt.body.statements) {
@@ -174,7 +188,11 @@ class IrLowerer(
             }
 
             is Ast.FunctionCall -> {
-                val symbol = functionResolver.resolve(stmt.name, astProgram)
+                val symbol = functionResolver.resolve(
+                    stmt.name,
+                    astProgram,
+                    functionResolver.contextForSelection(context.currentSelection())
+                )
                 val targetFunction = symbol.decl
 
                 if (selectorType(targetFunction) != null) {
@@ -213,6 +231,18 @@ class IrLowerer(
 
             is Ast.IfStmt -> {
                 emitIf(stmt, symbols, out, context)
+            }
+
+            is Ast.ReturnStmt -> {
+                out += Ir.SetVariableAction(
+                    actionName = "=",
+                    args = listOf(
+                        Ir.Variable(RETURN_PARAMETER_NAME),
+                        lowerExpr(stmt.expression, symbols, out, context)
+                    ),
+                    tags = emptyList(),
+                )
+                out += Ir.ControlAction("Return")
             }
         }
     }
@@ -334,6 +364,8 @@ class IrLowerer(
         return when (expr) {
             is Ast.BoolExpr -> Ir.NumberValue(if (expr.value) 1 else 0)
 
+            is Ast.FunctionCallExpr -> lowerExpr(expr, symbols, out, context)
+
             is Ast.IdentifierExpr -> {
                 symbols.resolve(expr.name)
                 Ir.Variable(expr.name)
@@ -438,12 +470,22 @@ class IrLowerer(
         stmt: Ast.FunctionCall,
         out: MutableList<Ir.Instr>,
         symbols: SymbolTable,
-        context: LoweringContext
+        context: LoweringContext,
+        contextOverride: FunctionResolver.Context? = null,
     ) {
-        val functionSymbol = functionResolver.resolve(stmt.name, astProgram)
+        val functionSymbol = functionResolver.resolve(
+            stmt.name,
+            astProgram,
+            contextOverride ?: functionResolver.contextForSelection(context.currentSelection())
+        )
+        val returnArgs = if (functionSymbol.decl.returnType != null) {
+            listOf(Ir.Variable(context.newTempVariableName()))
+        } else {
+            emptyList()
+        }
         out += Ir.CallFunction(
             functionSymbol.qualifiedName,
-            stmt.args.map { lowerExpr(it, symbols, out, context) }
+            stmt.args.map { lowerExpr(it, symbols, out, context) } + returnArgs
         )
     }
 
@@ -507,6 +549,24 @@ class IrLowerer(
                     error("Only simple dict access supported for now")
                 }
             }
+
+            is Ast.FunctionCallExpr -> {
+                val functionSymbol = functionResolver.resolve(
+                    expr.name,
+                    astProgram,
+                    functionResolver.contextForSelection(context.currentSelection())
+                )
+                if (functionSymbol.decl.returnType == null) {
+                    error("Function '${expr.name}' does not return a value")
+                }
+
+                val temp = context.newTempVariableName()
+                out += Ir.CallFunction(
+                    functionSymbol.qualifiedName,
+                    expr.args.map { lowerExpr(it, symbols, out, context) } + Ir.Variable(temp)
+                )
+                Ir.Variable(temp)
+            }
         }
     }
 
@@ -517,6 +577,7 @@ class IrLowerer(
 
     data class FunctionInfo(
         val decl: Ast.FunctionDecl,
+        val modulePath: String,
         val source: FunctionSource
     )
 }

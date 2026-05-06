@@ -27,6 +27,7 @@ class Tokenizer(
         "package" to TokenType.PACKAGE,
         "if" to TokenType.IF,
         "else" to TokenType.ELSE,
+        "return" to TokenType.RETURN,
         "true" to TokenType.TRUE,
         "false" to TokenType.FALSE,
     )

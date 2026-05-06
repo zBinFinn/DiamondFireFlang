@@ -30,6 +30,7 @@ object Ast {
         val name: String,
         val annotations: List<Annotation>,
         val parameters: List<Parameter>,
+        val returnType: Type?,
         val body: Block,
     ) : AstNode
 
@@ -100,6 +101,10 @@ object Ast {
         }
     }
 
+    data class ReturnStmt(
+        val expression: Expr,
+    ) : Statement
+
     sealed interface Expr : AstNode
 
     data class StringExpr(
@@ -146,5 +151,10 @@ object Ast {
     data class FieldAccessExpr(
         val receiver: Expr,
         val field: String,
+    ) : Expr
+
+    data class FunctionCallExpr(
+        val name: String,
+        val args: List<Expr>,
     ) : Expr
 }

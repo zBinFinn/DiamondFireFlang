@@ -1,10 +1,12 @@
 package com.zbinfinn.typecheck
 
 import com.zbinfinn.ast.Ast
+import com.zbinfinn.common.requiredSelectionType
 import com.zbinfinn.common.selectorType
 import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
 import com.zbinfinn.compiler.GlobalTypeTable
+import com.zbinfinn.ir.LoweringContext
 
 class TypeChecker(
     private val globals: GlobalFunctionTable,
@@ -32,14 +34,26 @@ class TypeChecker(
     private fun checkFunction(fn: Ast.FunctionDecl, program: Ast.Program, diags: MutableList<Diagnostic>) {
         val env = mutableMapOf<String, Type>()
         val functionName = fn.name
+        val declaredReturnType = fn.returnType?.let {
+            resolver.resolve(it, program, diags, function = functionName)
+        }
 
         for (param in fn.parameters) {
             val t = resolver.resolve(param.type, program, diags, function = functionName)
             env[param.name] = t
         }
 
+        val activeSelection = requiredSelectionType(fn)
         for (stmt in fn.body.statements) {
-            checkStatement(stmt, program, functionName, env, diags)
+            checkStatement(stmt, program, functionName, declaredReturnType, env, activeSelection, diags)
+        }
+
+        if (declaredReturnType != null && !blockAlwaysReturns(fn.body)) {
+            diags += Diagnostic(
+                message = "Function '${fn.name}' must return a value on every path.",
+                module = program.module.path,
+                function = functionName,
+            )
         }
     }
 
@@ -47,7 +61,9 @@ class TypeChecker(
         stmt: Ast.Statement,
         program: Ast.Program,
         functionName: String,
+        expectedReturnType: Type?,
         env: MutableMap<String, Type>,
+        activeSelection: LoweringContext.SelectionType?,
         diags: MutableList<Diagnostic>,
     ) {
         when (stmt) {
@@ -58,9 +74,9 @@ class TypeChecker(
                         module = program.module.path,
                         function = functionName,
                     )
-                    checkExpr(stmt.expression, program, functionName, env, diags)
+                    checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
                 } else {
-                    val t = checkExpr(stmt.expression, program, functionName, env, diags)
+                    val t = checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
                     env[stmt.identifier] = t
                 }
             }
@@ -73,7 +89,7 @@ class TypeChecker(
                         module = program.module.path,
                         function = functionName,
                     )
-                    checkExpr(stmt.value, program, functionName, env, diags)
+                    checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     return
                 }
 
@@ -84,7 +100,7 @@ class TypeChecker(
                         module = program.module.path,
                         function = functionName,
                     )
-                    checkExpr(stmt.value, program, functionName, env, diags)
+                    checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     return
                 }
 
@@ -95,7 +111,7 @@ class TypeChecker(
                             module = program.module.path,
                             function = functionName,
                         )
-                        checkExpr(stmt.value, program, functionName, env, diags)
+                        checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     }
 
                     is Type.Dict -> {
@@ -106,12 +122,12 @@ class TypeChecker(
                                 module = program.module.path,
                                 function = functionName,
                             )
-                            checkExpr(stmt.value, program, functionName, env, diags)
+                            checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                             return
                         }
 
                         val expected = resolver.resolve(fieldDecl.type, program, diags, functionName)
-                        val actual = checkExpr(stmt.value, program, functionName, env, diags)
+                        val actual = checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                         if (!isAssignable(actual, expected)) {
                             diags += Diagnostic(
                                 message = "Cannot assign value of type ${render(actual)} to field '${stmt.field}' of type ${render(expected)}.",
@@ -127,19 +143,25 @@ class TypeChecker(
                             module = program.module.path,
                             function = functionName,
                         )
-                        checkExpr(stmt.value, program, functionName, env, diags)
+                        checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     }
 
                     Type.Error -> {
-                        checkExpr(stmt.value, program, functionName, env, diags)
+                        checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     }
                 }
             }
 
-            is Ast.FunctionCall -> checkFunctionCall(stmt, program, functionName, env, diags)
+            is Ast.FunctionCall -> checkFunctionCall(stmt, program, functionName, env, activeSelection, diags)
 
             is Ast.WithBlock -> {
-                val symbol = resolveFunction(stmt.selectorFunction.name, program, functionName, diags)
+                val symbol = resolveFunction(
+                    stmt.selectorFunction.name,
+                    program,
+                    functionName,
+                    FunctionResolver.Context.Selector,
+                    diags
+                )
                 if (symbol != null && selectorType(symbol.decl) == null) {
                     diags += Diagnostic(
                         message = "Function '${stmt.selectorFunction.name}' is not a selector and cannot be used in a 'with' block.",
@@ -148,9 +170,18 @@ class TypeChecker(
                     )
                 }
 
-                checkFunctionCall(stmt.selectorFunction, program, functionName, env, diags)
+                checkFunctionCall(
+                    stmt.selectorFunction,
+                    program,
+                    functionName,
+                    env,
+                    activeSelection,
+                    diags,
+                    FunctionResolver.Context.Selector
+                )
+                val selected = symbol?.decl?.let { selectorType(it) } ?: activeSelection
                 for (inner in stmt.body.statements) {
-                    checkStatement(inner, program, functionName, env, diags)
+                    checkStatement(inner, program, functionName, expectedReturnType, env, selected, diags)
                 }
             }
 
@@ -159,7 +190,7 @@ class TypeChecker(
             }
 
             is Ast.IfStmt -> {
-                val condType = checkExpr(stmt.condition, program, functionName, env, diags)
+                val condType = checkExpr(stmt.condition, program, functionName, env, diags, activeSelection)
                 if (condType != Type.BooleanType && condType != Type.Error) {
                     diags += Diagnostic(
                         message = "If condition must be Boolean but got ${render(condType)}.",
@@ -169,22 +200,62 @@ class TypeChecker(
                 }
 
                 for (inner in stmt.thenBlock.statements) {
-                    checkStatement(inner, program, functionName, env, diags)
+                    checkStatement(inner, program, functionName, expectedReturnType, env, activeSelection, diags)
                 }
 
                 when (val elseBranch = stmt.elseBranch) {
                     null -> {}
                     is Ast.IfStmt.ElseBranch.Else -> {
                         for (inner in elseBranch.block.statements) {
-                            checkStatement(inner, program, functionName, env, diags)
+                            checkStatement(inner, program, functionName, expectedReturnType, env, activeSelection, diags)
                         }
                     }
 
                     is Ast.IfStmt.ElseBranch.ElseIf -> {
-                        checkStatement(elseBranch.stmt, program, functionName, env, diags)
+                        checkStatement(elseBranch.stmt, program, functionName, expectedReturnType, env, activeSelection, diags)
                     }
                 }
             }
+
+            is Ast.ReturnStmt -> {
+                val actual = checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
+                if (expectedReturnType == null) {
+                    diags += Diagnostic(
+                        message = "Cannot return a value from function '$functionName' because it has no return type.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                } else if (!isAssignable(actual, expectedReturnType)) {
+                    diags += Diagnostic(
+                        message = "Cannot return ${render(actual)} from function '$functionName' with return type ${render(expectedReturnType)}.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun blockAlwaysReturns(block: Ast.Block): Boolean {
+        for (stmt in block.statements) {
+            if (stmtAlwaysReturns(stmt)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun stmtAlwaysReturns(stmt: Ast.Statement): Boolean {
+        return when (stmt) {
+            is Ast.ReturnStmt -> true
+            is Ast.IfStmt -> {
+                val elseBranch = stmt.elseBranch ?: return false
+                blockAlwaysReturns(stmt.thenBlock) && when (elseBranch) {
+                    is Ast.IfStmt.ElseBranch.Else -> blockAlwaysReturns(elseBranch.block)
+                    is Ast.IfStmt.ElseBranch.ElseIf -> stmtAlwaysReturns(elseBranch.stmt)
+                }
+            }
+            else -> false
         }
     }
 
@@ -193,13 +264,16 @@ class TypeChecker(
         program: Ast.Program,
         functionName: String,
         env: MutableMap<String, Type>,
+        activeSelection: LoweringContext.SelectionType?,
         diags: MutableList<Diagnostic>,
-    ) {
-        val symbol = resolveFunction(call.name, program, functionName, diags) ?: run {
+        contextOverride: FunctionResolver.Context? = null,
+    ): com.zbinfinn.compiler.FunctionSymbol? {
+        val context = contextOverride ?: functionResolver.contextForSelection(activeSelection)
+        val symbol = resolveFunction(call.name, program, functionName, context, diags) ?: run {
             for (arg in call.args) {
-                checkExpr(arg, program, functionName, env, diags)
+                checkExpr(arg, program, functionName, env, diags, activeSelection)
             }
-            return
+            return null
         }
 
         val params = symbol.decl.parameters
@@ -213,7 +287,7 @@ class TypeChecker(
 
         val pairs = call.args.zip(params)
         for ((argExpr, param) in pairs) {
-            val actual = checkExpr(argExpr, program, functionName, env, diags)
+            val actual = checkExpr(argExpr, program, functionName, env, diags, activeSelection)
             val expected = resolver.resolve(param.type, program, diags, function = functionName)
             if (!isAssignable(actual, expected)) {
                 diags += Diagnostic(
@@ -226,9 +300,11 @@ class TypeChecker(
 
         if (call.args.size > params.size) {
             for (argExpr in call.args.drop(params.size)) {
-                checkExpr(argExpr, program, functionName, env, diags)
+                checkExpr(argExpr, program, functionName, env, diags, activeSelection)
             }
         }
+
+        return symbol
     }
 
     private fun checkExpr(
@@ -237,6 +313,7 @@ class TypeChecker(
         functionName: String,
         env: MutableMap<String, Type>,
         diags: MutableList<Diagnostic>,
+        activeSelection: LoweringContext.SelectionType? = null,
     ): Type {
         return when (expr) {
             is Ast.StringExpr -> Type.StringType
@@ -254,10 +331,33 @@ class TypeChecker(
                 }
             }
 
-            is Ast.DictLiteralExpr -> checkDictLiteral(expr, program, functionName, env, diags)
+            is Ast.DictLiteralExpr -> checkDictLiteral(expr, program, functionName, env, diags, activeSelection)
+
+            is Ast.FunctionCallExpr -> {
+                val symbol = checkFunctionCall(
+                    Ast.FunctionCall(expr.name, expr.args),
+                    program,
+                    functionName,
+                    env,
+                    activeSelection,
+                    diags
+                ) ?: return Type.Error
+
+                val returnType = symbol.decl.returnType
+                if (returnType == null) {
+                    diags += Diagnostic(
+                        message = "Function '${expr.name}' does not return a value.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                    Type.Error
+                } else {
+                    resolver.resolve(returnType, program, diags, functionName)
+                }
+            }
 
             is Ast.FieldAccessExpr -> {
-                val recvType = checkExpr(expr.receiver, program, functionName, env, diags)
+                val recvType = checkExpr(expr.receiver, program, functionName, env, diags, activeSelection)
                 when (recvType) {
                     Type.AnyType -> {
                         diags += Diagnostic(
@@ -296,7 +396,7 @@ class TypeChecker(
             }
 
             is Ast.UnaryExpr -> {
-                val t = checkExpr(expr.expr, program, functionName, env, diags)
+                val t = checkExpr(expr.expr, program, functionName, env, diags, activeSelection)
                 if (expr.op == Ast.UnaryOp.Not && t != Type.BooleanType && t != Type.Error) {
                     diags += Diagnostic(
                         message = "Operator '!' expects Boolean but got ${render(t)}.",
@@ -308,8 +408,8 @@ class TypeChecker(
             }
 
             is Ast.BinaryExpr -> {
-                val left = checkExpr(expr.left, program, functionName, env, diags)
-                val right = checkExpr(expr.right, program, functionName, env, diags)
+                val left = checkExpr(expr.left, program, functionName, env, diags, activeSelection)
+                val right = checkExpr(expr.right, program, functionName, env, diags, activeSelection)
                 when (expr.op) {
                     Ast.BinaryOp.EqEq, Ast.BinaryOp.Neq -> {
                         if (!isAssignable(left, right) && !isAssignable(right, left) && left != Type.Error && right != Type.Error) {
@@ -350,6 +450,7 @@ class TypeChecker(
         functionName: String,
         env: MutableMap<String, Type>,
         diags: MutableList<Diagnostic>,
+        activeSelection: LoweringContext.SelectionType? = null,
     ): Type {
         val dictSymbol = typeTable.resolve(expr.typeName, program)
         if (dictSymbol == null) {
@@ -360,7 +461,7 @@ class TypeChecker(
             )
             // Still walk entries for further issues.
             for (entry in expr.entries) {
-                checkExpr(entry.value, program, functionName, env, diags)
+                checkExpr(entry.value, program, functionName, env, diags, activeSelection)
             }
             return Type.Error
         }
@@ -385,12 +486,12 @@ class TypeChecker(
                     module = program.module.path,
                     function = functionName,
                 )
-                checkExpr(entry.value, program, functionName, env, diags)
+                checkExpr(entry.value, program, functionName, env, diags, activeSelection)
                 continue
             }
 
             val expected = resolver.resolve(fieldDecl.type, program, diags, functionName)
-            val actual = checkExpr(entry.value, program, functionName, env, diags)
+            val actual = checkExpr(entry.value, program, functionName, env, diags, activeSelection)
             if (!isAssignable(actual, expected)) {
                 diags += Diagnostic(
                     message = "Field '${entry.field}' expects ${render(expected)} but got ${render(actual)}.",
@@ -417,10 +518,11 @@ class TypeChecker(
         name: String,
         program: Ast.Program,
         functionName: String,
+        context: FunctionResolver.Context,
         diags: MutableList<Diagnostic>,
     ): com.zbinfinn.compiler.FunctionSymbol? {
         return try {
-            functionResolver.resolve(name, program)
+            functionResolver.resolve(name, program, context)
         } catch (t: Throwable) {
             diags += Diagnostic(
                 message = t.message ?: "Unresolved function '$name'.",

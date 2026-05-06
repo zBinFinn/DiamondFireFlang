@@ -89,13 +89,10 @@ fun main() {
 fun registerAllStdlibAst(globals: GlobalFunctionTable) {
     for (std in StdlibAst.functions) {
         val modulePath = std.importPath.substringBeforeLast(".")
-        val fnName = std.decl.name
-        val qualifiedName = "$modulePath.$fnName"
 
         globals.registerFunction(
             modulePath = modulePath,
-            function = std.decl,
-            qualifiedName = qualifiedName
+            function = std.decl
         )
     }
 }

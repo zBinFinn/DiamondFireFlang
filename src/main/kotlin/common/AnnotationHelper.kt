@@ -15,7 +15,36 @@ data class EntityEventAnnotation(
     override val eventName: String,
 ) : EventAnnotation
 
-// TODO: enforce max. 1 event annotation on a function
+enum class FunctionKind(
+    val suffix: String?
+) {
+    Plain(null),
+    PlayerSelector("playerSelector"),
+    EntitySelector("entitySelector"),
+    OnPlayerSelection("onPlayerSelection"),
+    OnEntitySelection("onEntitySelection"),
+    PlayerEvent("playerEvent"),
+    EntityEvent("entityEvent"),
+}
+
+private val functionKindAnnotations = mapOf(
+    "PlayerSelector" to FunctionKind.PlayerSelector,
+    "EntitySelector" to FunctionKind.EntitySelector,
+    "OnPlayerSelection" to FunctionKind.OnPlayerSelection,
+    "OnEntitySelection" to FunctionKind.OnEntitySelection,
+    "PlayerEvent" to FunctionKind.PlayerEvent,
+    "EntityEvent" to FunctionKind.EntityEvent,
+)
+
+fun functionKind(function: Ast.FunctionDecl): FunctionKind {
+    val kinds = function.annotations.mapNotNull { functionKindAnnotations[it.name] }
+    if (kinds.size > 1) {
+        error("Function '${function.name}' may only have one function role annotation")
+    }
+
+    return kinds.singleOrNull() ?: FunctionKind.Plain
+}
+
 fun parseEventAnnotation(
     annotations: List<Ast.Annotation>
 ): EventAnnotation? {
@@ -24,6 +53,9 @@ fun parseEventAnnotation(
     for (annotation in annotations) {
         when (annotation.name) {
             "PlayerEvent" -> {
+                if (result != null) {
+                    error("Function may only have one event annotation")
+                }
                 if (annotation.args.size != 1) {
                     error("@PlayerEvent requires exactly one argument")
                 }
@@ -37,6 +69,9 @@ fun parseEventAnnotation(
             }
 
             "EntityEvent" -> {
+                if (result != null) {
+                    error("Function may only have one event annotation")
+                }
                 if (annotation.args.size != 1) {
                     error("@EntityEvent requires exactly one argument")
                 }
@@ -54,9 +89,7 @@ fun parseEventAnnotation(
 }
 
 fun requiresSelection(function: Ast.FunctionDecl): Boolean {
-    return function.annotations.any {
-        it.name == "OnPlayerSelection"
-    }
+    return requiredSelectionType(function) != null
 }
 
 fun selectorType(fn: Ast.FunctionDecl): LoweringContext.SelectionType? {

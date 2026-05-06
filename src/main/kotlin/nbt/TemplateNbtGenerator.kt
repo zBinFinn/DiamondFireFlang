@@ -123,7 +123,7 @@ class TemplateNbtGenerator(
         val tags: String? = matcher.group("tags")
         println("Currently Processing: $type $action: $args | $tags")
         when (type) {
-            "pe", "pa", "sv", "cf", "so", "sp", "fn", "pr", "iv" -> {
+            "pe", "pa", "sv", "cf", "so", "sp", "fn", "pr", "iv", "ctrl" -> {
                 json.addProperty("id", "block")
                 json.addProperty("block", mapIdentifierToDfIdentifier(type))
                 json.add("args", processArgsAndTags(args, tags, mapIdentifierToDfIdentifier(type), if (setOf("fn", "pr", "sp", "cf").contains(type)) { "dynamic" } else { action } ))
@@ -132,7 +132,7 @@ class TemplateNbtGenerator(
                 }
                 when (type) {
                     "cf", "sp", "fn", "pr" -> json.addProperty("data", action)
-                    "pe", "pa", "sv", "so", "iv" -> json.addProperty("action", action)
+                    "pe", "pa", "sv", "so", "iv", "ctrl" -> json.addProperty("action", action)
                     else -> throw UnexpectedException("Unknown starter $type")
                 }
             }
@@ -253,6 +253,7 @@ class TemplateNbtGenerator(
             "sv" -> "set_var"
             "fn" -> "func"
             "iv" -> "if_var"
+            "ctrl" -> "control"
             else -> throw UnexpectedException("Identifier $identifier not yet supported.")
         }
     }
