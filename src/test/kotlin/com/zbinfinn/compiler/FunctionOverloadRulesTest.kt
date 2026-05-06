@@ -3,6 +3,7 @@ package com.zbinfinn.compiler
 import com.zbinfinn.ast.Parser
 import com.zbinfinn.emitter.DfEmitter
 import com.zbinfinn.ir.IrLowerer
+import com.zbinfinn.registerAllStdlibTypes
 import com.zbinfinn.tokenizer.Tokenizer
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
@@ -46,9 +47,8 @@ class FunctionOverloadRulesTest {
         val program = parse(
             """
             mod main;
-            @PlayerEvent("Join")
+            @Event(MissingEvent)
             fn handle() {}
-            @PlayerEvent("Quit")
             fn handle() {}
             """.trimIndent()
         )
@@ -63,14 +63,15 @@ class FunctionOverloadRulesTest {
         val program = parse(
             """
             mod main;
+            import std.events.PlayerJoinEvent;
             @PlayerSelector
             fn pick() { val x = 1; }
             @OnPlayerSelection
             fn handle() { val x = 2; }
             @OnEntitySelection
             fn handle() { val x = 3; }
-            @PlayerEvent("Join")
-            fn join() {
+            @Event(PlayerJoinEvent)
+            fn join(var event: PlayerJoinEvent) {
                 with pick() {
                     handle();
                 }
@@ -79,10 +80,14 @@ class FunctionOverloadRulesTest {
         )
 
         val globals = GlobalFunctionTable()
+        com.zbinfinn.registerAllStdlibAst(globals)
         globals.register(program)
         val resolver = FunctionResolver(globals)
+        val typeTable = GlobalTypeTable()
+        registerAllStdlibTypes(typeTable)
+        typeTable.register(program)
 
-        val emitted = DfEmitter().emit(IrLowerer(program, globals, resolver).lowerProgram())
+        val emitted = DfEmitter().emit(IrLowerer(program, globals, resolver, typeTable).lowerProgram())
 
         assertTrue(emitted.contains("fn \"main.pick\$playerSelector\""))
         assertTrue(emitted.contains("fn \"main.handle\$onPlayerSelection\""))

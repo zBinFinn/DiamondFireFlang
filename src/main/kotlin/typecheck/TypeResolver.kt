@@ -1,7 +1,9 @@
 package com.zbinfinn.typecheck
 
 import com.zbinfinn.ast.Ast
+import com.zbinfinn.compiler.DictSymbol
 import com.zbinfinn.compiler.GlobalTypeTable
+import com.zbinfinn.compiler.SingletonSymbol
 
 class TypeResolver(
     private val typeTable: GlobalTypeTable,
@@ -23,7 +25,10 @@ class TypeResolver(
                     )
                     Type.Error
                 } else {
-                    Type.Dict(symbol.qualifiedName, symbol.decl)
+                    when (symbol) {
+                        is DictSymbol -> Type.Dict(symbol.qualifiedName, symbol.decl)
+                        is SingletonSymbol -> Type.Singleton(symbol.qualifiedName, symbol.decl)
+                    }
                 }
             }
         }

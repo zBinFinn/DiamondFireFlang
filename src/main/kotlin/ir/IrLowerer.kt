@@ -12,7 +12,10 @@ import com.zbinfinn.common.selectorType
 import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
 import com.zbinfinn.compiler.GlobalTypeTable
+import com.zbinfinn.compiler.DictSymbol
+import com.zbinfinn.compiler.SingletonSymbol
 import com.zbinfinn.stdlib.ImportContext
+import com.zbinfinn.stdlib.InternalStdlib
 import com.zbinfinn.stdlib.StdlibAst
 
 class IrLowerer(
@@ -35,12 +38,13 @@ class IrLowerer(
             table[fn.name] = FunctionInfo(fn, astProgram.module.path, FunctionSource.User)
         }
 
-        for (stdFn in StdlibAst.functions) {
-            val fn = stdFn.decl
-            val import = stdFn.importPath
+        for (stdProgram in StdlibAst.programs) {
+            for (fn in stdProgram.functions) {
+                val import = "${stdProgram.module.path}.${fn.name}"
 
-            if (importContext.isImported(import)) {
-                table[fn.name] = FunctionInfo(fn, import.substringBeforeLast("."), FunctionSource.Std)
+                if (importContext.isImported(import)) {
+                    table[fn.name] = FunctionInfo(fn, stdProgram.module.path, FunctionSource.Std)
+                }
             }
         }
 
@@ -53,7 +57,11 @@ class IrLowerer(
         val context = LoweringContext()
 
         for (function in astProgram.functions) {
-            val event = parseEventAnnotation(function.annotations)
+            val event = if (function.annotations.any { it.name == "Event" || it.name == "PlayerEvent" || it.name == "EntityEvent" }) {
+                parseEventAnnotation(function, astProgram, requireTypeTable())
+            } else {
+                null
+            }
 
             if (event != null) {
                 entryPoints += lowerEvent(function, event, context)
@@ -93,6 +101,15 @@ class IrLowerer(
             error("Events may not be annotated with selection annotations")
         }
 
+        val eventParam = function.parameters.singleOrNull()
+        if (eventParam != null) {
+            symbols.define(
+                eventParam.name,
+                mutable = eventParam.mutable,
+                typeQualifiedName = event.singletonQualifiedName,
+            )
+        }
+
         for (stmt in function.body.statements) {
             lowerStatement(stmt, symbols, body, context)
         }
@@ -112,7 +129,7 @@ class IrLowerer(
         context.resetTempVariableIndex()
 
         val requiresSelection = requiresSelection(function)
-        if (requiresSelection && function.body.statements.isEmpty()) {
+        if (requiresSelection && function.body.statements.isEmpty() && !function.internal) {
             error("Selection handler function '${function.name}' must have a body")
         }
 
@@ -121,10 +138,14 @@ class IrLowerer(
 
         val parameters = mutableListOf<Ir.Parameter>()
         for (param in function.parameters) {
-            parameters += lowerParameter(param)
-            symbols.define(param.name, mutable = param.mutable, typeQualifiedName = resolveDictType(param.type))
+            val typeQualifiedName = resolveTypeQualifiedName(param.type)
+            if (!isSingletonType(typeQualifiedName)) {
+                parameters += lowerParameter(param)
+            }
+            symbols.define(param.name, mutable = param.mutable, typeQualifiedName = typeQualifiedName)
         }
-        if (function.returnType != null) {
+        val returnTypeQualifiedName = function.returnType?.let { resolveTypeQualifiedName(it) }
+        if (function.returnType != null && !isSingletonType(returnTypeQualifiedName)) {
             parameters += Ir.Parameter(RETURN_PARAMETER_NAME, mutable = true)
             symbols.define(RETURN_PARAMETER_NAME, mutable = true)
         }
@@ -134,8 +155,15 @@ class IrLowerer(
             context.selectionStack.addLast(requiredSelection)
         }
 
-        for (stmt in function.body.statements) {
-            lowerStatement(stmt, symbols, body, context)
+        if (function.internal) {
+            val functionSymbol = symbolOverride ?: globals.resolveInModule(modulePath, function.name, functionKind(function))
+                ?: error("Registered symbol for function '${function.name}' not found")
+            body += InternalStdlib.functionBody(functionSymbol.qualifiedName, function.parameters.map { Ir.Variable(it.name) })
+                ?: error("Missing internal stdlib provider for '${functionSymbol.qualifiedName}'")
+        } else {
+            for (stmt in function.body.statements) {
+                lowerStatement(stmt, symbols, body, context)
+            }
         }
 
         if (requiredSelection != null) {
@@ -168,28 +196,33 @@ class IrLowerer(
                 symbols.define(
                     name,
                     mutable = stmt.mutable,
-                    typeQualifiedName = expressionDictType(stmt.expression, symbols)
+                    typeQualifiedName = expressionTypeQualifiedName(stmt.expression, symbols)
                 )
-                out += Ir.SetVariableAction(
-                    actionName = "=",
-                    args = listOf(
-                        Ir.Variable(name),
-                        value
-                    ),
-                    tags = emptyList(),
-                )
+                if (value !is Ir.SingletonValue) {
+                    out += Ir.SetVariableAction(
+                        actionName = "=",
+                        args = listOf(
+                            Ir.Variable(name),
+                            value
+                        ),
+                        tags = emptyList(),
+                    )
+                }
             }
 
             is Ast.VariableAssignment -> {
                 symbols.assign(stmt.identifier)
-                out += Ir.SetVariableAction(
-                    actionName = "=",
-                    args = listOf(
-                        Ir.Variable(stmt.identifier),
-                        lowerExpr(stmt.expression, symbols, out, context)
-                    ),
-                    tags = emptyList(),
-                )
+                val value = lowerExpr(stmt.expression, symbols, out, context)
+                if (value !is Ir.SingletonValue) {
+                    out += Ir.SetVariableAction(
+                        actionName = "=",
+                        args = listOf(
+                            Ir.Variable(stmt.identifier),
+                            value
+                        ),
+                        tags = emptyList(),
+                    )
+                }
             }
 
             is Ast.WithBlock -> {
@@ -272,14 +305,17 @@ class IrLowerer(
             }
 
             is Ast.ReturnStmt -> {
-                out += Ir.SetVariableAction(
-                    actionName = "=",
-                    args = listOf(
-                        Ir.Variable(RETURN_PARAMETER_NAME),
-                        lowerExpr(stmt.expression, symbols, out, context)
-                    ),
-                    tags = emptyList(),
-                )
+                val value = lowerExpr(stmt.expression, symbols, out, context)
+                if (value !is Ir.SingletonValue) {
+                    out += Ir.SetVariableAction(
+                        actionName = "=",
+                        args = listOf(
+                            Ir.Variable(RETURN_PARAMETER_NAME),
+                            value
+                        ),
+                        tags = emptyList(),
+                    )
+                }
                 out += Ir.ControlAction("Return")
             }
         }
@@ -581,14 +617,18 @@ class IrLowerer(
             astProgram,
             contextOverride ?: functionResolver.contextForSelection(context.currentSelection())
         )
-        val returnArgs = if (functionSymbol.decl.returnType != null) {
+        val returnTypeQualifiedName = functionSymbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
+        val returnArgs = if (functionSymbol.decl.returnType != null && !isSingletonType(returnTypeQualifiedName)) {
             listOf(Ir.Variable(context.newTempVariableName()))
         } else {
             emptyList()
         }
+        val runtimeArgs = stmt.args
+            .map { lowerExpr(it, symbols, out, context) }
+            .filterNot { it is Ir.SingletonValue }
         out += Ir.CallFunction(
             functionSymbol.qualifiedName,
-            stmt.args.map { lowerExpr(it, symbols, out, context) } + returnArgs
+            runtimeArgs + returnArgs
         )
     }
 
@@ -598,21 +638,34 @@ class IrLowerer(
         symbols: SymbolTable,
         context: LoweringContext,
         requireReturn: Boolean,
-    ): Ir.Variable? {
+    ): Ir.Value? {
         val resolution = resolveMemberCall(call, symbols)
-        val returnTemp = if (resolution.symbol.decl.returnType != null) {
+        val returnTypeQualifiedName = resolution.symbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
+        val returnTemp = if (resolution.symbol.decl.returnType != null && !isSingletonType(returnTypeQualifiedName)) {
             Ir.Variable(context.newTempVariableName())
         } else {
             if (requireReturn) {
-                error("Member function '${call.name}' does not return a value")
+                if (isSingletonType(returnTypeQualifiedName)) {
+                    null
+                } else {
+                    error("Member function '${call.name}' does not return a value")
+                }
+            } else {
+                null
             }
-            null
         }
 
         val receiverArgs = resolution.receiver?.let { listOf(lowerExpr(it, symbols, out, context)) } ?: emptyList()
         val args = receiverArgs + call.args.map { lowerExpr(it, symbols, out, context) } + listOfNotNull(returnTemp)
-        out += Ir.CallFunction(resolution.symbol.qualifiedName, args)
-        return returnTemp
+        val internalBody = InternalStdlib.memberBody(resolution.symbol.qualifiedName, args)
+        if (internalBody != null) {
+            out += internalBody
+        } else {
+            out += Ir.CallFunction(resolution.symbol.qualifiedName, args.filterNot { it is Ir.SingletonValue })
+        }
+        return returnTemp ?: returnTypeQualifiedName
+            ?.takeIf { isSingletonType(it) }
+            ?.let { Ir.SingletonValue(it) }
     }
 
     private data class MemberResolution(
@@ -634,7 +687,7 @@ class IrLowerer(
             return MemberResolution(symbol, null)
         }
 
-        val receiverType = expressionDictType(call.receiver, symbols)
+        val receiverType = expressionTypeQualifiedName(call.receiver, symbols)
             ?: error("Cannot resolve receiver type for member function '${call.name}'")
         val symbol = functionResolver.resolveMember(receiverType, call.name)
         if (symbol.isStaticMember) {
@@ -679,8 +732,21 @@ class IrLowerer(
                 lowerNumericExprToValue(expr, symbols, out, context)
             }
             is Ast.IdentifierExpr -> {
-                symbols.resolve(expr.name)
-                Ir.Variable(expr.name)
+                val symbol = runCatching { symbols.resolve(expr.name) }.getOrNull()
+                if (symbol != null) {
+                    if (isSingletonType(symbol.typeQualifiedName)) {
+                        Ir.SingletonValue(symbol.typeQualifiedName!!)
+                    } else {
+                        Ir.Variable(expr.name)
+                    }
+                } else {
+                    val typeSymbol = requireTypeTable().resolve(expr.name, astProgram)
+                    if (typeSymbol is SingletonSymbol) {
+                        Ir.SingletonValue(typeSymbol.qualifiedName)
+                    } else {
+                        error("Variable ${expr.name} not defined")
+                    }
+                }
             }
 
             is Ast.DictLiteralExpr -> {
@@ -731,25 +797,34 @@ class IrLowerer(
                     error("Function '${expr.name}' does not return a value")
                 }
 
+                val returnTypeQualifiedName = functionSymbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
+                if (isSingletonType(returnTypeQualifiedName)) {
+                    return Ir.SingletonValue(returnTypeQualifiedName!!)
+                }
+
                 val temp = context.newTempVariableName()
+                val runtimeArgs = expr.args
+                    .map { lowerExpr(it, symbols, out, context) }
+                    .filterNot { it is Ir.SingletonValue }
                 out += Ir.CallFunction(
                     functionSymbol.qualifiedName,
-                    expr.args.map { lowerExpr(it, symbols, out, context) } + Ir.Variable(temp)
+                    runtimeArgs + Ir.Variable(temp)
                 )
                 Ir.Variable(temp)
             }
         }
     }
 
-    private fun expressionDictType(expr: Ast.Expr, symbols: SymbolTable): String? {
+    private fun expressionTypeQualifiedName(expr: Ast.Expr, symbols: SymbolTable): String? {
         return when (expr) {
-            is Ast.IdentifierExpr -> symbols.resolve(expr.name).typeQualifiedName
-            is Ast.DictLiteralExpr -> requireTypeTable().resolve(expr.typeName, astProgram)?.qualifiedName
+            is Ast.IdentifierExpr -> runCatching { symbols.resolve(expr.name).typeQualifiedName }.getOrNull()
+                ?: (requireTypeTable().resolve(expr.name, astProgram) as? SingletonSymbol)?.qualifiedName
+            is Ast.DictLiteralExpr -> (requireTypeTable().resolve(expr.typeName, astProgram) as? DictSymbol)?.qualifiedName
             is Ast.FieldAccessExpr -> {
-                val receiverTypeName = expressionDictType(expr.receiver, symbols) ?: return null
-                val receiverDecl = requireTypeTable().resolveQualified(receiverTypeName)?.decl ?: return null
+                val receiverTypeName = expressionTypeQualifiedName(expr.receiver, symbols) ?: return null
+                val receiverDecl = (requireTypeTable().resolveQualified(receiverTypeName) as? DictSymbol)?.decl ?: return null
                 val field = receiverDecl.fields.firstOrNull { it.name == expr.field } ?: return null
-                resolveDictType(field.type)
+                resolveTypeQualifiedName(field.type)
             }
             is Ast.FunctionCallExpr -> {
                 val symbol = functionResolver.resolve(
@@ -757,21 +832,25 @@ class IrLowerer(
                     astProgram,
                     functionResolver.contextForSelection(null)
                 )
-                symbol.decl.returnType?.let { resolveDictType(it) }
+                symbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
             }
             is Ast.MemberFunctionCall -> {
                 val symbol = resolveMemberCall(expr, symbols).symbol
-                symbol.decl.returnType?.let { resolveDictType(it) }
+                symbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
             }
             else -> null
         }
     }
 
-    private fun resolveDictType(type: Ast.Type): String? {
+    private fun resolveTypeQualifiedName(type: Ast.Type): String? {
         if (type.identifier in setOf("String", "Number", "Boolean", "boolean", "Any")) {
             return null
         }
         return requireTypeTable().resolve(type.identifier, astProgram)?.qualifiedName
+    }
+
+    private fun isSingletonType(typeQualifiedName: String?): Boolean {
+        return typeQualifiedName != null && requireTypeTable().resolveQualified(typeQualifiedName) is SingletonSymbol
     }
 
     private fun requireTypeTable(): GlobalTypeTable {

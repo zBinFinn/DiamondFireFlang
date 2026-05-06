@@ -6,10 +6,12 @@ enum class TokenType {
     NUMBER_LIT,
 
     FN,
+    INTERNAL,
     VAL,
     VAR,
     MOD,
     DICT,
+    SINGLETON,
     IMPL,
     WITH,
     IMPORT,

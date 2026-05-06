@@ -20,12 +20,13 @@ class BooleanIfLoweringTest {
             
             import std.player.sendMessage;
             import std.player.selection.defaultPlayer;
+            import std.events.PlayerJoinEvent;
             
             import funny.sendFunny;
             import funny.FunnyNess;
             
-            @PlayerEvent("Join")
-            fn join() {
+            @Event(PlayerJoinEvent)
+            fn join(var event: PlayerJoinEvent) {
                 val test = true;
                 val test2 = false;
                 with defaultPlayer() {
@@ -72,6 +73,7 @@ class BooleanIfLoweringTest {
         registerAllStdlibAst(globals)
 
         val typeTable = GlobalTypeTable()
+        com.zbinfinn.registerAllStdlibTypes(typeTable)
         programs.forEach { typeTable.register(it) }
 
         val resolver = FunctionResolver(globals)

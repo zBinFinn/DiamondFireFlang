@@ -2,6 +2,7 @@ mod main;
 
 import std.player.sendMessage;
 import std.player.selection.defaultPlayer;
+import std.events.PlayerJoinEvent;
 
 import funny.sendFunny;
 import funny.FunnyNess;
@@ -15,6 +16,13 @@ fn balls(): Number {
 
 @PlayerEvent("Join")
 fn join() {
+
+}
+
+@Event(PlayerJoinEvent)
+fn join(var event: PlayerJoinEvent) {
+    event.setCancelled(true);
+
     val test = true;
     val test2 = false;
     with defaultPlayer() {

@@ -1,0 +1,8 @@
+mod main;
+
+import std.events.PlayerJoinEvent;
+
+@Event(PlayerJoinEvent)
+fn join(var event: PlayerJoinEvent) {
+    val test = 1 + 2 * 3 / 4 ^ 5;
+}

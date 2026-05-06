@@ -51,14 +51,13 @@ class ParserReturnTest {
     }
 
     @Test
-    fun `function parameters require val or var`() {
+    fun `function parameters default to immutable when val or var is omitted`() {
         val code = """
             mod main;
             fn old(x: Number) {}
         """.trimIndent()
 
-        kotlin.test.assertFailsWith<IllegalStateException> {
-            Parser(Tokenizer(code).tokenize()).parseProgram()
-        }
+        val fn = Parser(Tokenizer(code).tokenize()).parseProgram().functions.single()
+        assertEquals(false, fn.parameters.single().mutable)
     }
 }

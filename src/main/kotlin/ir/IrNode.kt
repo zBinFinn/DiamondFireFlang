@@ -37,7 +37,7 @@ object Ir {
 
     data object OpenBracket : Instr
     data object CloseBracket : Instr
-    data object ElseMarker : Instr
+    data object Else : Instr
 
     data class Tag(
         val slot: Int,
@@ -98,12 +98,19 @@ object Ir {
         override val target: Target?
     ) : SimpleAction("pa")
 
+    data class GameAction(
+        override val actionName: String,
+        override val args: List<Value> = emptyList(),
+        override val tags: List<Tag> = emptyList()
+    ) : SimpleAction("ga")
+
     sealed interface Value
 
     data class StringValue(val value: String) : Value
     data class StyledText(val value: String) : Value
     data class NumberValue(val value: Number) : Value
     data class Variable(val name: String, val scope: VariableScope = VariableScope.LINE) : Value
+    data class SingletonValue(val qualifiedName: String) : Value
 
     enum class Target {
         Selection,

@@ -60,7 +60,7 @@ class DfEmitter {
             is Ir.InlineIr -> emitInlineIr(instr, sb)
             Ir.OpenBracket -> sb.appendLine("{")
             Ir.CloseBracket -> sb.appendLine("}")
-            Ir.ElseMarker -> sb.appendLine("else")
+            Ir.Else -> sb.appendLine("else")
         }
     }
 
@@ -111,6 +111,7 @@ class DfEmitter {
             is Ir.NumberValue -> "n\"${value.value}\""
             is Ir.Variable -> "vLI\"${value.name}\"" // TODO: not just line variables
             is Ir.Parameter -> "${if (value.mutable) "pm" else "p"}\"${value.name}\""
+            is Ir.SingletonValue -> error("Singleton value '${value.qualifiedName}' has no DiamondFire representation")
         }
     }
 

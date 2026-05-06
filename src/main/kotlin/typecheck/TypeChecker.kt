@@ -1,11 +1,16 @@
 package com.zbinfinn.typecheck
 
 import com.zbinfinn.ast.Ast
+import com.zbinfinn.common.EntityEventAnnotation
+import com.zbinfinn.common.PlayerEventAnnotation
+import com.zbinfinn.common.parseEventAnnotation
 import com.zbinfinn.common.requiredSelectionType
 import com.zbinfinn.common.selectorType
+import com.zbinfinn.compiler.DictSymbol
 import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
 import com.zbinfinn.compiler.GlobalTypeTable
+import com.zbinfinn.compiler.SingletonSymbol
 import com.zbinfinn.ir.LoweringContext
 
 class TypeChecker(
@@ -26,6 +31,23 @@ class TypeChecker(
         for (dict in program.dicts) {
             for (field in dict.fields) {
                 resolver.resolve(field.type, program, diags, function = null)
+            }
+        }
+
+        for (singleton in program.singletons) {
+            for (annotation in singleton.annotations) {
+                if (annotation.name == "PlayerEventProvider" || annotation.name == "EntityEventProvider") {
+                    if (annotation.args.size != 1 || annotation.args.first() !is Ast.StringExpr) {
+                        diags += Diagnostic(
+                            message = "@${annotation.name} requires exactly one string argument.",
+                            module = program.module.path,
+                            function = null,
+                        )
+                    }
+                }
+            }
+            for (fn in singleton.functions) {
+                checkFunction(fn, program, diags, ownerType = singleton.name)
             }
         }
 
@@ -61,9 +83,15 @@ class TypeChecker(
             resolver.resolve(it, program, diags, function = functionName)
         }
 
+        validateEventFunction(fn, program, functionName, diags)
+
         for (param in fn.parameters) {
             val t = resolver.resolve(param.type, program, diags, function = functionName)
             env[param.name] = VariableInfo(t, param.mutable)
+        }
+
+        if (fn.internal) {
+            return
         }
 
         val activeSelection = requiredSelectionType(fn)
@@ -211,6 +239,15 @@ class TypeChecker(
                         checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     }
 
+                    is Type.Singleton -> {
+                        diags += Diagnostic(
+                            message = "Cannot assign field '${stmt.field}' on singleton type ${render(recvType)}.",
+                            module = program.module.path,
+                            function = functionName,
+                        )
+                        checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
+                    }
+
                     Type.Error -> {
                         checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     }
@@ -305,6 +342,60 @@ class TypeChecker(
         }
     }
 
+    private fun validateEventFunction(
+        fn: Ast.FunctionDecl,
+        program: Ast.Program,
+        functionName: String,
+        diags: MutableList<Diagnostic>
+    ) {
+        for (annotation in fn.annotations) {
+            if (annotation.name == "PlayerEvent" || annotation.name == "EntityEvent") {
+                diags += Diagnostic(
+                    message = "@${annotation.name} is no longer supported; use @Event(EventSingleton).",
+                    module = program.module.path,
+                    function = functionName,
+                )
+                return
+            }
+        }
+
+        val event = try {
+            parseEventAnnotation(fn, program, typeTable)
+        } catch (t: Throwable) {
+            if (fn.annotations.any { it.name == "Event" }) {
+                diags += Diagnostic(
+                    message = t.message ?: "Invalid @Event annotation.",
+                    module = program.module.path,
+                    function = functionName,
+                )
+            }
+            return
+        } ?: return
+
+        if (fn.parameters.size != 1) {
+            diags += Diagnostic(
+                message = "Event function '$functionName' must declare exactly one event parameter.",
+                module = program.module.path,
+                function = functionName,
+            )
+            return
+        }
+
+        val parameterType = resolver.resolve(fn.parameters.single().type, program, diags, functionName)
+        val expected = event.singletonQualifiedName
+        if (parameterType !is Type.Singleton || parameterType.qualifiedName != expected) {
+            val kind = when (event) {
+                is PlayerEventAnnotation -> "player"
+                is EntityEventAnnotation -> "entity"
+            }
+            diags += Diagnostic(
+                message = "@Event $kind function parameter must be ${expected.substringAfterLast('.')} but got ${render(parameterType)}.",
+                module = program.module.path,
+                function = functionName,
+            )
+        }
+    }
+
     private fun blockAlwaysReturns(block: Ast.Block): Boolean {
         for (stmt in block.statements) {
             if (stmtAlwaysReturns(stmt)) {
@@ -354,7 +445,7 @@ class TypeChecker(
             }
         } else {
             val receiverType = checkExpr(call.receiver, program, functionName, env, diags, activeSelection)
-            if (receiverType !is Type.Dict) {
+            if (receiverType !is Type.Dict && receiverType !is Type.Singleton) {
                 if (receiverType != Type.Error) {
                     diags += Diagnostic(
                         message = "Cannot call member function '${call.name}' on ${render(receiverType)}.",
@@ -364,10 +455,20 @@ class TypeChecker(
                 }
                 null
             } else {
-                resolveMember(receiverType.qualifiedName, call.name, program, functionName, diags)?.also {
+                val receiverTypeName = when (receiverType) {
+                    is Type.Dict -> receiverType.qualifiedName
+                    is Type.Singleton -> receiverType.qualifiedName
+                    else -> error("Unexpected receiver type $receiverType")
+                }
+                val receiverSimpleName = when (receiverType) {
+                    is Type.Dict -> receiverType.decl.name
+                    is Type.Singleton -> receiverType.decl.name
+                    else -> error("Unexpected receiver type $receiverType")
+                }
+                resolveMember(receiverTypeName, call.name, program, functionName, diags)?.also {
                     if (it.isStaticMember) {
                         diags += Diagnostic(
-                            message = "Static member function '${call.name}' must be called on type '${receiverType.decl.name}'.",
+                            message = "Static member function '${call.name}' must be called on type '$receiverSimpleName'.",
                             module = program.module.path,
                             function = functionName,
                         )
@@ -490,12 +591,17 @@ class TypeChecker(
 
             is Ast.IdentifierExpr -> {
                 env[expr.name]?.type ?: run {
-                    diags += Diagnostic(
-                        message = "Variable '${expr.name}' not defined.",
-                        module = program.module.path,
-                        function = functionName,
-                    )
-                    Type.Error
+                    when (val symbol = typeTable.resolve(expr.name, program)) {
+                        is SingletonSymbol -> Type.Singleton(symbol.qualifiedName, symbol.decl)
+                        else -> {
+                            diags += Diagnostic(
+                                message = "Variable '${expr.name}' not defined.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                            Type.Error
+                        }
+                    }
                 }
             }
 
@@ -557,6 +663,15 @@ class TypeChecker(
                     Type.StringType, Type.NumberType, Type.BooleanType -> {
                         diags += Diagnostic(
                             message = "Cannot access field '${expr.field}' on non-dict type ${render(recvType)}.",
+                            module = program.module.path,
+                            function = functionName,
+                        )
+                        Type.Error
+                    }
+
+                    is Type.Singleton -> {
+                        diags += Diagnostic(
+                            message = "Cannot access field '${expr.field}' on singleton type ${render(recvType)}.",
                             module = program.module.path,
                             function = functionName,
                         )
@@ -665,7 +780,7 @@ class TypeChecker(
         diags: MutableList<Diagnostic>,
         activeSelection: LoweringContext.SelectionType? = null,
     ): Type {
-        val dictSymbol = typeTable.resolve(expr.typeName, program)
+        val dictSymbol = typeTable.resolve(expr.typeName, program) as? DictSymbol
         if (dictSymbol == null) {
             diags += Diagnostic(
                 message = "Unknown dict type '${expr.typeName}'.",
@@ -773,6 +888,7 @@ class TypeChecker(
             Type.AnyType -> "Any"
             Type.Error -> "<error>"
             is Type.Dict -> t.qualifiedName
+            is Type.Singleton -> t.qualifiedName
         }
     }
 }

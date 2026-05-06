@@ -9,6 +9,7 @@ object Ast {
         val module: ModuleDecl,
         val imports: List<Import>,
         val dicts: List<DictDecl>,
+        val singletons: List<SingletonDecl>,
         val impls: List<ImplDecl>,
         val functions: List<FunctionDecl>
     ) : AstNode
@@ -20,6 +21,12 @@ object Ast {
     data class DictDecl(
         val name: String,
         val fields: List<Field>
+    ) : AstNode
+
+    data class SingletonDecl(
+        val name: String,
+        val annotations: List<Annotation>,
+        val functions: List<FunctionDecl>
     ) : AstNode
 
     data class Field(
@@ -39,6 +46,7 @@ object Ast {
         val parameters: List<Parameter>,
         val returnType: Type?,
         val body: Block,
+        val internal: Boolean = false,
     ) : AstNode
 
     data class Parameter(

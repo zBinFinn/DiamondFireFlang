@@ -1,18 +1,23 @@
 package com.zbinfinn.common
 
 import com.zbinfinn.ast.Ast
+import com.zbinfinn.compiler.GlobalTypeTable
+import com.zbinfinn.compiler.SingletonSymbol
 import com.zbinfinn.ir.LoweringContext
 
 sealed interface EventAnnotation {
     val eventName: String
+    val singletonQualifiedName: String
 }
 
 data class PlayerEventAnnotation(
     override val eventName: String,
+    override val singletonQualifiedName: String,
 ) : EventAnnotation
 
 data class EntityEventAnnotation(
     override val eventName: String,
+    override val singletonQualifiedName: String,
 ) : EventAnnotation
 
 enum class FunctionKind(
@@ -32,8 +37,6 @@ private val functionKindAnnotations = mapOf(
     "EntitySelector" to FunctionKind.EntitySelector,
     "OnPlayerSelection" to FunctionKind.OnPlayerSelection,
     "OnEntitySelection" to FunctionKind.OnEntitySelection,
-    "PlayerEvent" to FunctionKind.PlayerEvent,
-    "EntityEvent" to FunctionKind.EntityEvent,
 )
 
 fun functionKind(function: Ast.FunctionDecl): FunctionKind {
@@ -46,46 +49,80 @@ fun functionKind(function: Ast.FunctionDecl): FunctionKind {
 }
 
 fun parseEventAnnotation(
-    annotations: List<Ast.Annotation>
+    function: Ast.FunctionDecl,
+    program: Ast.Program,
+    typeTable: GlobalTypeTable,
 ): EventAnnotation? {
+    val annotations = function.annotations
     var result: EventAnnotation? = null
 
     for (annotation in annotations) {
         when (annotation.name) {
-            "PlayerEvent" -> {
-                if (result != null) {
-                    error("Function may only have one event annotation")
-                }
-                if (annotation.args.size != 1) {
-                    error("@PlayerEvent requires exactly one argument")
-                }
-
-                val arg = annotation.args.first()
-                if (arg !is Ast.StringExpr) {
-                    error("@PlayerEvent argument must be a string")
-                }
-
-                result = PlayerEventAnnotation(arg.value)
+            "PlayerEvent", "EntityEvent" -> {
+                error("@${annotation.name} is no longer supported; use @Event(EventSingleton)")
             }
 
-            "EntityEvent" -> {
+            "Event" -> {
                 if (result != null) {
                     error("Function may only have one event annotation")
                 }
                 if (annotation.args.size != 1) {
-                    error("@EntityEvent requires exactly one argument")
+                    error("@Event requires exactly one argument")
                 }
 
                 val arg = annotation.args.first()
-                if (arg !is Ast.StringExpr) {
-                    error("@EntityEvent argument must be a string")
+                if (arg !is Ast.IdentifierExpr) {
+                    error("@Event argument must be a singleton type identifier")
                 }
 
-                result = EntityEventAnnotation(arg.value)
+                val symbol = typeTable.resolve(arg.name, program) as? SingletonSymbol
+                    ?: error("@Event argument '${arg.name}' must resolve to a singleton type")
+                val provider = parseEventProvider(symbol.decl)
+                    ?: error("Singleton '${arg.name}' is not an event provider")
+
+                result = when (provider) {
+                    is EventProvider.Player -> PlayerEventAnnotation(provider.eventName, symbol.qualifiedName)
+                    is EventProvider.Entity -> EntityEventAnnotation(provider.eventName, symbol.qualifiedName)
+                }
             }
         }
     }
     return result
+}
+
+sealed interface EventProvider {
+    val eventName: String
+
+    data class Player(override val eventName: String) : EventProvider
+    data class Entity(override val eventName: String) : EventProvider
+}
+
+fun parseEventProvider(singleton: Ast.SingletonDecl): EventProvider? {
+    var result: EventProvider? = null
+    for (annotation in singleton.annotations) {
+        val provider = when (annotation.name) {
+            "PlayerEventProvider" -> EventProvider.Player(parseProviderName(annotation))
+            "EntityEventProvider" -> EventProvider.Entity(parseProviderName(annotation))
+            else -> null
+        } ?: continue
+
+        if (result != null) {
+            error("Singleton '${singleton.name}' may only have one event provider annotation")
+        }
+        result = provider
+    }
+    return result
+}
+
+private fun parseProviderName(annotation: Ast.Annotation): String {
+    if (annotation.args.size != 1) {
+        error("@${annotation.name} requires exactly one argument")
+    }
+    val arg = annotation.args.first()
+    if (arg !is Ast.StringExpr) {
+        error("@${annotation.name} argument must be a string")
+    }
+    return arg.value
 }
 
 fun requiresSelection(function: Ast.FunctionDecl): Boolean {

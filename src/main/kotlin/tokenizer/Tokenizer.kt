@@ -23,10 +23,12 @@ class Tokenizer(
 
     private val keywords = mapOf(
         "fn" to TokenType.FN,
+        "internal" to TokenType.INTERNAL,
         "val" to TokenType.VAL,
         "var" to TokenType.VAR,
         "mod" to TokenType.MOD,
         "dict" to TokenType.DICT,
+        "singleton" to TokenType.SINGLETON,
         "impl" to TokenType.IMPL,
         "with" to TokenType.WITH,
         "import" to TokenType.IMPORT,

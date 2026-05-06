@@ -13,6 +13,11 @@ sealed interface Type {
         val decl: Ast.DictDecl,
     ) : Type
 
+    data class Singleton(
+        val qualifiedName: kotlin.String,
+        val decl: Ast.SingletonDecl,
+    ) : Type
+
     /**
      * for error-recovery, so we can keep type-checking and report multiple problems.
      */

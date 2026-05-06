@@ -1,29 +1,28 @@
 package com.zbinfinn.stdlib.impl.player
 
-import com.zbinfinn.stdlib.StdFunctionProvider
-import com.zbinfinn.stdlib.dsl.function
+import com.zbinfinn.ir.Ir
+import com.zbinfinn.stdlib.InternalStdlibProvider
+import com.zbinfinn.stdlib.InternalStdlibRegistry
 import com.zbinfinn.stdlib.impl.StdModules
 
-object SendMessage : StdFunctionProvider {
-    override fun invoke() = function(
-        StdModules.PLAYER,
-        "sendMessage",
-    ) {
-        annotations {
-            onPlayerSelection()
-        }
+object SendMessage : InternalStdlibProvider {
+    fun body(args: List<Ir.Value>): List<Ir.Instr> {
+        val text = args[0]
+        return listOf(
+            Ir.PlayerAction(
+                actionName = "SendMessage",
+                args = listOf(text),
+                tags = listOf(
+                    Ir.Tag(26, "Alignment Mode", "Regular"),
+                    Ir.Tag(25, "Text Value Merging", "Add spaces"),
+                    Ir.Tag(24, "Inherit Styles", "False"),
+                ),
+                target = null
+            )
+        )
+    }
 
-        params {
-            any("text")
-        }
-
-        body {
-            playerAction("SendMessage") {
-                variable("text")
-                tag(26, "Alignment Mode", "Regular")
-                tag(25, "Text Value Merging", "Add spaces")
-                tag(24, "Inherit Styles", "False")
-            }
-        }
+    override fun register(builder: InternalStdlibRegistry.Builder) {
+        builder.onPlayerSelection(StdModules.PLAYER, "sendMessage", ::body)
     }
 }

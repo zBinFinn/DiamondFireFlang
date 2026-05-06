@@ -23,8 +23,9 @@ fun main() {
 
     // TODO: I love hardcoding file paths
     val sourceFiles = listOf(
-        Path("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\examples\\src\\funny.fl"),
-        Path("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\examples\\src\\main.fl")
+//        Path("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\examples\\src\\funny.fl"),
+//        Path("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\examples\\src\\main.fl")
+        Path("C:\\Users\\User\\Documents\\IntelliJ Projects\\DiamondFireFlang\\examples\\src\\numerics.fl")
     )
 
     val programs = sourceFiles.map { path ->
@@ -40,6 +41,7 @@ fun main() {
     registerAllStdlibAst(globals)
 
     val typeTable = GlobalTypeTable()
+    registerAllStdlibTypes(typeTable)
     programs.forEach { program ->
         typeTable.register(program)
     }
@@ -87,12 +89,13 @@ fun main() {
 }
 
 fun registerAllStdlibAst(globals: GlobalFunctionTable) {
-    for (std in StdlibAst.functions) {
-        val modulePath = std.importPath.substringBeforeLast(".")
+    for (program in StdlibAst.programs) {
+        globals.register(program)
+    }
+}
 
-        globals.registerFunction(
-            modulePath = modulePath,
-            function = std.decl
-        )
+fun registerAllStdlibTypes(typeTable: GlobalTypeTable) {
+    for (program in StdlibAst.programs) {
+        typeTable.register(program)
     }
 }

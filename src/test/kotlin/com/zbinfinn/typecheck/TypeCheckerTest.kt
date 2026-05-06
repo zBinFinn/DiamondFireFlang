@@ -5,6 +5,7 @@ import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
 import com.zbinfinn.compiler.GlobalTypeTable
 import com.zbinfinn.registerAllStdlibAst
+import com.zbinfinn.registerAllStdlibTypes
 import com.zbinfinn.tokenizer.Tokenizer
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -21,6 +22,7 @@ class TypeCheckerTest {
         registerAllStdlibAst(globals)
 
         val typeTable = GlobalTypeTable()
+        registerAllStdlibTypes(typeTable)
         programs.forEach { typeTable.register(it) }
 
         val resolver = FunctionResolver(globals)
@@ -40,9 +42,10 @@ class TypeCheckerTest {
             mod main;
             import std.player.sendMessage;
             import std.player.selection.defaultPlayer;
+            import std.events.PlayerJoinEvent;
 
-            @PlayerEvent("Join")
-            fn join() {
+            @Event(PlayerJoinEvent)
+            fn join(var event: PlayerJoinEvent) {
                 with defaultPlayer() {
                     sendMessage(5);
                 }

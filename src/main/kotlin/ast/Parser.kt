@@ -32,6 +32,7 @@ class Parser(
         val imports = mutableListOf<Ast.Import>()
         val functions = mutableListOf<Ast.FunctionDecl>()
         val dicts = mutableListOf<Ast.DictDecl>()
+        val singletons = mutableListOf<Ast.SingletonDecl>()
         val impls = mutableListOf<Ast.ImplDecl>()
 
         while (match(TokenType.IMPORT)) {
@@ -40,14 +41,23 @@ class Parser(
 
         while (peek().type != TokenType.EOF) {
             when {
-                peek().type == TokenType.FN || peek().type == TokenType.AT -> functions += parseFunction();
+                peek().type == TokenType.FN || peek().type == TokenType.INTERNAL -> functions += parseFunction();
+                peek().type == TokenType.AT -> {
+                    val annotations = parseAnnotations()
+                    when (peek().type) {
+                        TokenType.FN, TokenType.INTERNAL -> functions += parseFunction(preparsedAnnotations = annotations)
+                        TokenType.SINGLETON -> singletons += parseSingleton(annotations)
+                        else -> error("Expected function or singleton after annotation at ${peek().position}")
+                    }
+                }
                 peek().type == TokenType.DICT -> dicts += parseDict();
+                peek().type == TokenType.SINGLETON -> singletons += parseSingleton(emptyList());
                 peek().type == TokenType.IMPL -> impls += parseImpl();
                 else -> error("Unexpected token '${peek()}'")
             }
         }
 
-        return Ast.Program(module, imports, dicts, impls, functions)
+        return Ast.Program(module, imports, dicts, singletons, impls, functions)
     }
 
     private fun parseDict(): Ast.DictDecl {
@@ -89,7 +99,7 @@ class Parser(
 
         expect(TokenType.SEMI, "Expected ';' at the end of a module declaration")
         return Ast.ModuleDecl(
-            path.joinToString(separator = ", ")
+            path.joinToString(separator = ".")
         )
     }
 
@@ -97,7 +107,7 @@ class Parser(
         val mutable = when {
             match(TokenType.VAL) -> false
             match(TokenType.VAR) -> true
-            else -> error("Expected 'val' or 'var' before parameter name at ${peek().position}")
+            else -> false
         }
         val identifier = expect(TokenType.IDENT, "Expected parameter name").lexeme
         if (identifier == "this") {
@@ -122,13 +132,15 @@ class Parser(
         )
     }
 
-    private fun parseFunction(implicitThisType: String? = null): Ast.FunctionDecl {
+    private fun parseFunction(
+        implicitThisType: String? = null,
+        preparsedAnnotations: List<Ast.Annotation> = emptyList()
+    ): Ast.FunctionDecl {
         val annotations = mutableListOf<Ast.Annotation>()
+        annotations += preparsedAnnotations
+        annotations += parseAnnotations()
 
-        while (match(TokenType.AT)) {
-            annotations += parseAnnotation()
-        }
-
+        val internal = match(TokenType.INTERNAL)
         expect(TokenType.FN, "Expected 'fn'")
         val name = expect(TokenType.IDENT, "Expected function name").lexeme
 
@@ -147,9 +159,34 @@ class Parser(
             null
         }
 
-        val block = parseBlock()
+        val block = if (internal && match(TokenType.SEMI)) {
+            Ast.Block(emptyList())
+        } else {
+            parseBlock()
+        }
 
         return Ast.FunctionDecl(name, annotations, parameters, returnType, block)
+            .copy(internal = internal)
+    }
+
+    private fun parseAnnotations(): List<Ast.Annotation> {
+        val annotations = mutableListOf<Ast.Annotation>()
+        while (match(TokenType.AT)) {
+            annotations += parseAnnotation()
+        }
+        return annotations
+    }
+
+    private fun parseSingleton(annotations: List<Ast.Annotation>): Ast.SingletonDecl {
+        expect(TokenType.SINGLETON, "Expected 'singleton'")
+        val name = expect(TokenType.IDENT, "Expected singleton identifier").lexeme
+        expect(TokenType.LBRACE, "Expected '{' after singleton name")
+        val functions = mutableListOf<Ast.FunctionDecl>()
+        while (peek().type != TokenType.RBRACE) {
+            functions += parseFunction(name)
+        }
+        expect(TokenType.RBRACE, "Expected '}' after singleton block")
+        return Ast.SingletonDecl(name, annotations, functions)
     }
 
     private fun parseImpl(): Ast.ImplDecl {

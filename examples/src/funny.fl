@@ -16,16 +16,25 @@ impl FunnyNess {
         return this.level;
     }
 
+    fn createSilly(val level: Number): FunnyNess {
+        return FunnyNess {
+            level: level,
+            message: "Really Silly"
+        };
+    }
+
     fn new(): FunnyNess {
         return FunnyNess {
             level: 0,
             message: "Really Funny"
-        }
+        };
     }
 }
 
 @OnPlayerSelection
 fn sendFunny(val funny: FunnyNess) {
+    val x = funny.getLevel();
+
     sendMessage("Level:");
     sendMessage(funny.level);
     sendMessage("Message:");

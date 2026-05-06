@@ -47,6 +47,10 @@ class GlobalFunctionTable {
         for (impl in program.impls) {
             registerImpl(modulePath, impl, program)
         }
+
+        for (singleton in program.singletons) {
+            registerSingleton(modulePath, singleton, program)
+        }
     }
 
     fun registerFunction(
@@ -100,6 +104,34 @@ class GlobalFunctionTable {
             }
             if (functionKind(fn) != FunctionKind.Plain) {
                 error("Member function '${fn.name}' may not use function role annotations")
+            }
+
+            val qualifiedName = "$typeQualifiedName.${fn.name}"
+            val symbol = FunctionSymbol(
+                qualifiedName = qualifiedName,
+                simpleName = fn.name,
+                modulePath = modulePath,
+                kind = FunctionKind.Plain,
+                decl = fn,
+                program = program,
+                memberOf = typeQualifiedName,
+                isStaticMember = fn.parameters.firstOrNull()?.name != "this"
+            )
+
+            memberMap[fn.name] = symbol
+        }
+    }
+
+    private fun registerSingleton(modulePath: String, singleton: Ast.SingletonDecl, program: Ast.Program) {
+        val typeQualifiedName = "$modulePath.${singleton.name}"
+        val memberMap = byMember.getOrPut(typeQualifiedName) { mutableMapOf() }
+
+        for (fn in singleton.functions) {
+            if (memberMap.containsKey(fn.name)) {
+                error("Duplicate member function '${fn.name}' for '$typeQualifiedName'")
+            }
+            if (functionKind(fn) != FunctionKind.Plain) {
+                error("Singleton member function '${fn.name}' may not use function role annotations")
             }
 
             val qualifiedName = "$typeQualifiedName.${fn.name}"
