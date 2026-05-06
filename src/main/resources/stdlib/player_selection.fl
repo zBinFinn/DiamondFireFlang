@@ -1,0 +1,4 @@
+mod std.player.selection;
+
+@PlayerSelector
+internal fn defaultPlayer();

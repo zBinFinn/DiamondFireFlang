@@ -1,0 +1,6 @@
+mod std.events;
+
+@PlayerEventProvider("Join")
+singleton PlayerJoinEvent {
+    internal fn setCancelled(var this, cancelled: Boolean);
+}

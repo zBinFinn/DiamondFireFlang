@@ -1,0 +1,7 @@
+mod std.player;
+
+@OnPlayerSelection
+internal fn sendMessage(text: Any);
+
+@OnPlayerSelection
+internal fn showActionBar(text: String);
