@@ -21,5 +21,21 @@ class TokenizerTest {
         assertTrue(tokens.any { it.type == TokenType.OROR })
         assertTrue(tokens.any { it.type == TokenType.BANG })
     }
-}
 
+    @Test
+    fun `tokenizer handles arithmetic operators`() {
+        val code = """
+            mod main;
+            fn f() {
+                val x = 1 + 2 - 3 * 4 / 5 ^ 6;
+            }
+        """.trimIndent()
+
+        val tokenTypes = Tokenizer(code).tokenize().map { it.type }
+        assertTrue(TokenType.PLUS in tokenTypes)
+        assertTrue(TokenType.MINUS in tokenTypes)
+        assertTrue(TokenType.STAR in tokenTypes)
+        assertTrue(TokenType.SLASH in tokenTypes)
+        assertTrue(TokenType.CARET in tokenTypes)
+    }
+}

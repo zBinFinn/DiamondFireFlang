@@ -569,14 +569,29 @@ class TypeChecker(
 
             is Ast.UnaryExpr -> {
                 val t = checkExpr(expr.expr, program, functionName, env, diags, activeSelection)
-                if (expr.op == Ast.UnaryOp.Not && t != Type.BooleanType && t != Type.Error) {
-                    diags += Diagnostic(
-                        message = "Operator '!' expects Boolean but got ${render(t)}.",
-                        module = program.module.path,
-                        function = functionName,
-                    )
+                when (expr.op) {
+                    Ast.UnaryOp.Not -> {
+                        if (t != Type.BooleanType && t != Type.Error) {
+                            diags += Diagnostic(
+                                message = "Operator '!' expects Boolean but got ${render(t)}.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
+                        Type.BooleanType
+                    }
+
+                    Ast.UnaryOp.Negate -> {
+                        if (t != Type.NumberType && t != Type.Error) {
+                            diags += Diagnostic(
+                                message = "Operator '-' expects Number but got ${render(t)}.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
+                        Type.NumberType
+                    }
                 }
-                Type.BooleanType
             }
 
             is Ast.BinaryExpr -> {
@@ -610,6 +625,32 @@ class TypeChecker(
                             )
                         }
                         Type.BooleanType
+                    }
+
+                    Ast.BinaryOp.Add, Ast.BinaryOp.Sub, Ast.BinaryOp.Mul, Ast.BinaryOp.Div, Ast.BinaryOp.Pow -> {
+                        val op = when (expr.op) {
+                            Ast.BinaryOp.Add -> "+"
+                            Ast.BinaryOp.Sub -> "-"
+                            Ast.BinaryOp.Mul -> "*"
+                            Ast.BinaryOp.Div -> "/"
+                            Ast.BinaryOp.Pow -> "^"
+                            else -> error("Unexpected arithmetic operator ${expr.op}")
+                        }
+                        if (left != Type.NumberType && left != Type.Error) {
+                            diags += Diagnostic(
+                                message = "Operator '$op' expects Number on left but got ${render(left)}.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
+                        if (right != Type.NumberType && right != Type.Error) {
+                            diags += Diagnostic(
+                                message = "Operator '$op' expects Number on right but got ${render(right)}.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
+                        Type.NumberType
                     }
                 }
             }

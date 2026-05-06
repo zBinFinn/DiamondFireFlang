@@ -142,14 +142,14 @@ object Ast {
         val value: Boolean
     ) : Expr
 
-    enum class UnaryOp { Not }
+    enum class UnaryOp { Not, Negate }
 
     data class UnaryExpr(
         val op: UnaryOp,
         val expr: Expr
     ) : Expr
 
-    enum class BinaryOp { EqEq, Neq, AndAnd, OrOr }
+    enum class BinaryOp { EqEq, Neq, AndAnd, OrOr, Add, Sub, Mul, Div, Pow }
 
     data class BinaryExpr(
         val left: Expr,

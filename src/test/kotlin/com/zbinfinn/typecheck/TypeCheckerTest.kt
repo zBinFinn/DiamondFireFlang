@@ -277,4 +277,51 @@ class TypeCheckerTest {
         assertTrue(diags.any { it.message.contains("Cannot reassign immutable variable 'immutable'") })
         assertTrue(diags.none { it.message.contains("Cannot reassign immutable variable 'mutable'") })
     }
+
+    @Test
+    fun `valid arithmetic expressions typecheck as Number`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn get(): Number {
+                val x = 1 + 2 * 3 / 4 - 5 ^ 2;
+                return -x;
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.isEmpty(), "Expected no type errors, got: ${diags.joinToString()}")
+    }
+
+    @Test
+    fun `arithmetic operands must be Number`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn f() {
+                val x = "one" + 2;
+                val y = true * 3;
+                val z = -"nope";
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("Operator '+' expects Number on left") })
+        assertTrue(diags.any { it.message.contains("Operator '*' expects Number on left") })
+        assertTrue(diags.any { it.message.contains("Operator '-' expects Number") })
+    }
+
+    @Test
+    fun `arithmetic expression is not Boolean condition`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn f() {
+                if (1 + 2) { }
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("If condition must be Boolean") })
+    }
 }

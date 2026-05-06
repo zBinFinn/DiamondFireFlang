@@ -301,11 +301,33 @@ class Parser(
     }
 
     private fun parseEqualityExpression(): Ast.Expr {
+        var expr = parseAdditiveExpression()
+        while (true) {
+            expr = when {
+                match(TokenType.EQEQ) -> Ast.BinaryExpr(expr, Ast.BinaryOp.EqEq, parseAdditiveExpression())
+                match(TokenType.NEQ) -> Ast.BinaryExpr(expr, Ast.BinaryOp.Neq, parseAdditiveExpression())
+                else -> return expr
+            }
+        }
+    }
+
+    private fun parseAdditiveExpression(): Ast.Expr {
+        var expr = parseMultiplicativeExpression()
+        while (true) {
+            expr = when {
+                match(TokenType.PLUS) -> Ast.BinaryExpr(expr, Ast.BinaryOp.Add, parseMultiplicativeExpression())
+                match(TokenType.MINUS) -> Ast.BinaryExpr(expr, Ast.BinaryOp.Sub, parseMultiplicativeExpression())
+                else -> return expr
+            }
+        }
+    }
+
+    private fun parseMultiplicativeExpression(): Ast.Expr {
         var expr = parseUnaryExpression()
         while (true) {
             expr = when {
-                match(TokenType.EQEQ) -> Ast.BinaryExpr(expr, Ast.BinaryOp.EqEq, parseUnaryExpression())
-                match(TokenType.NEQ) -> Ast.BinaryExpr(expr, Ast.BinaryOp.Neq, parseUnaryExpression())
+                match(TokenType.STAR) -> Ast.BinaryExpr(expr, Ast.BinaryOp.Mul, parseUnaryExpression())
+                match(TokenType.SLASH) -> Ast.BinaryExpr(expr, Ast.BinaryOp.Div, parseUnaryExpression())
                 else -> return expr
             }
         }
@@ -315,7 +337,18 @@ class Parser(
         if (match(TokenType.BANG)) {
             return Ast.UnaryExpr(Ast.UnaryOp.Not, parseUnaryExpression())
         }
-        return parsePostfixExpression()
+        if (match(TokenType.MINUS)) {
+            return Ast.UnaryExpr(Ast.UnaryOp.Negate, parseUnaryExpression())
+        }
+        return parsePowerExpression()
+    }
+
+    private fun parsePowerExpression(): Ast.Expr {
+        val expr = parsePostfixExpression()
+        if (match(TokenType.CARET)) {
+            return Ast.BinaryExpr(expr, Ast.BinaryOp.Pow, parseUnaryExpression())
+        }
+        return expr
     }
 
     private fun parsePostfixExpression(): Ast.Expr {

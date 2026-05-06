@@ -13,7 +13,12 @@ class Tokenizer(
         ')' to TokenType.RPAREN,
         '{' to TokenType.LBRACE,
         '}' to TokenType.RBRACE,
-        '=' to TokenType.EQ
+        '=' to TokenType.EQ,
+        '+' to TokenType.PLUS,
+        '-' to TokenType.MINUS,
+        '*' to TokenType.STAR,
+        '/' to TokenType.SLASH,
+        '^' to TokenType.CARET
     )
 
     private val keywords = mapOf(

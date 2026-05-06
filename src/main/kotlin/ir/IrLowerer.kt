@@ -385,9 +385,17 @@ class IrLowerer(
         context: LoweringContext
     ): Ir.Value {
         return when (expr) {
-            is Ast.BoolExpr,
-            is Ast.UnaryExpr,
-            is Ast.BinaryExpr -> lowerBoolExprToValue(expr, symbols, out, context)
+            is Ast.BoolExpr -> lowerBoolExprToValue(expr, symbols, out, context)
+            is Ast.UnaryExpr -> when (expr.op) {
+                Ast.UnaryOp.Not -> lowerBoolExprToValue(expr, symbols, out, context)
+                Ast.UnaryOp.Negate -> lowerNumericExprToValue(expr, symbols, out, context)
+            }
+
+            is Ast.BinaryExpr -> if (expr.isBooleanBinary()) {
+                lowerBoolExprToValue(expr, symbols, out, context)
+            } else {
+                lowerNumericExprToValue(expr, symbols, out, context)
+            }
 
             else -> lowerExpr(expr, symbols, out, context)
         }
@@ -414,6 +422,7 @@ class IrLowerer(
                 val inner = lowerBoolExprToValue(expr.expr, symbols, out, context)
                 when (expr.op) {
                     Ast.UnaryOp.Not -> comparisonToTemp("=", Ir.NumberValue(0), inner, out, context)
+                    Ast.UnaryOp.Negate -> error("Unsupported boolean expression $expr")
                 }
             }
 
@@ -432,6 +441,12 @@ class IrLowerer(
                         val values = terms.map { lowerBoolExprToValue(it, symbols, out, context) }
                         gateToTemp(isAnd = false, values = values, out = out, context = context)
                     }
+
+                    Ast.BinaryOp.Add,
+                    Ast.BinaryOp.Sub,
+                    Ast.BinaryOp.Mul,
+                    Ast.BinaryOp.Div,
+                    Ast.BinaryOp.Pow -> error("Unsupported boolean expression $expr")
                 }
             }
 
@@ -474,6 +489,55 @@ class IrLowerer(
             tags = emptyList()
         )
         out += Ir.CloseBracket
+        return Ir.Variable(temp)
+    }
+
+    private fun lowerNumericExprToValue(
+        expr: Ast.Expr,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ): Ir.Value {
+        return when (expr) {
+            is Ast.UnaryExpr -> when (expr.op) {
+                Ast.UnaryOp.Negate -> {
+                    val value = lowerExpr(expr.expr, symbols, out, context)
+                    arithmeticToTemp("-", Ir.NumberValue(0), value, out, context)
+                }
+
+                Ast.UnaryOp.Not -> error("Unsupported numeric expression $expr")
+            }
+
+            is Ast.BinaryExpr -> {
+                if (!expr.isArithmeticBinary()) {
+                    error("Unsupported numeric expression $expr")
+                }
+                arithmeticToTemp(
+                    actionName = expr.arithmeticActionName(),
+                    left = lowerExpr(expr.left, symbols, out, context),
+                    right = lowerExpr(expr.right, symbols, out, context),
+                    out = out,
+                    context = context
+                )
+            }
+
+            else -> lowerExpr(expr, symbols, out, context)
+        }
+    }
+
+    private fun arithmeticToTemp(
+        actionName: String,
+        left: Ir.Value,
+        right: Ir.Value,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ): Ir.Variable {
+        val temp = context.newTempVariableName()
+        out += Ir.SetVariableAction(
+            actionName = actionName,
+            args = listOf(Ir.Variable(temp), left, right),
+            tags = emptyList()
+        )
         return Ir.Variable(temp)
     }
 
@@ -603,9 +667,17 @@ class IrLowerer(
         return when (expr) {
             is Ast.StringExpr -> Ir.StringValue(expr.value)
             is Ast.NumberExpr -> Ir.NumberValue(expr.value)
-            is Ast.BoolExpr,
-            is Ast.UnaryExpr,
-            is Ast.BinaryExpr -> lowerBoolExprToValue(expr, symbols, out, context)
+            is Ast.BoolExpr -> lowerBoolExprToValue(expr, symbols, out, context)
+            is Ast.UnaryExpr -> when (expr.op) {
+                Ast.UnaryOp.Not -> lowerBoolExprToValue(expr, symbols, out, context)
+                Ast.UnaryOp.Negate -> lowerNumericExprToValue(expr, symbols, out, context)
+            }
+
+            is Ast.BinaryExpr -> if (expr.isBooleanBinary()) {
+                lowerBoolExprToValue(expr, symbols, out, context)
+            } else {
+                lowerNumericExprToValue(expr, symbols, out, context)
+            }
             is Ast.IdentifierExpr -> {
                 symbols.resolve(expr.name)
                 Ir.Variable(expr.name)
@@ -716,4 +788,34 @@ class IrLowerer(
         val modulePath: String,
         val source: FunctionSource
     )
+}
+
+private fun Ast.BinaryExpr.isBooleanBinary(): Boolean {
+    return op in setOf(
+        Ast.BinaryOp.EqEq,
+        Ast.BinaryOp.Neq,
+        Ast.BinaryOp.AndAnd,
+        Ast.BinaryOp.OrOr
+    )
+}
+
+private fun Ast.BinaryExpr.isArithmeticBinary(): Boolean {
+    return op in setOf(
+        Ast.BinaryOp.Add,
+        Ast.BinaryOp.Sub,
+        Ast.BinaryOp.Mul,
+        Ast.BinaryOp.Div,
+        Ast.BinaryOp.Pow
+    )
+}
+
+private fun Ast.BinaryExpr.arithmeticActionName(): String {
+    return when (op) {
+        Ast.BinaryOp.Add -> "+"
+        Ast.BinaryOp.Sub -> "-"
+        Ast.BinaryOp.Mul -> "*"
+        Ast.BinaryOp.Div -> "/"
+        Ast.BinaryOp.Pow -> "Exponent"
+        else -> error("Unexpected arithmetic operator $op")
+    }
 }

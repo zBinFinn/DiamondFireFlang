@@ -27,6 +27,11 @@ enum class TokenType {
     ANDAND, // &&
     OROR, // ||
     BANG, // !
+    PLUS, // +
+    MINUS, // -
+    STAR, // *
+    SLASH, // /
+    CARET, // ^
     DOT, // .
     COMMA, // ,
     SEMI, // ;
