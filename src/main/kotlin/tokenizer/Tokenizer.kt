@@ -19,7 +19,7 @@ class Tokenizer(
     private val keywords = mapOf(
         "fn" to TokenType.FN,
         "val" to TokenType.VAL,
-        "mut" to TokenType.MUT,
+        "var" to TokenType.VAR,
         "mod" to TokenType.MOD,
         "dict" to TokenType.DICT,
         "with" to TokenType.WITH,

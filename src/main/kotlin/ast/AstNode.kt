@@ -79,7 +79,13 @@ object Ast {
         val body: Block,
     ) : Statement
 
-    data class ImmutableAssignment(
+    data class VariableDeclaration(
+        val identifier: String,
+        val expression: Expr,
+        val mutable: Boolean,
+    ) : Statement
+
+    data class VariableAssignment(
         val identifier: String,
         val expression: Expr,
     ) : Statement

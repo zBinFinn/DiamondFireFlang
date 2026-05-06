@@ -87,7 +87,11 @@ class Parser(
     }
 
     private fun parseFunctionParameter(): Ast.Parameter {
-        val mutable = match(TokenType.MUT)
+        val mutable = when {
+            match(TokenType.VAL) -> false
+            match(TokenType.VAR) -> true
+            else -> error("Expected 'val' or 'var' before parameter name at ${peek().position}")
+        }
         val identifier = expect(TokenType.IDENT, "Expected parameter name").lexeme
         expect(TokenType.COLON, "Expected ':' after parameter name")
         val type = expect(TokenType.IDENT, "Expected parameter type").lexeme
@@ -164,15 +168,8 @@ class Parser(
 
     private fun parseStatement(): Ast.Statement {
         when (peek().type) {
-            TokenType.VAL -> {
-                match(TokenType.VAL)
-                val identifier = expect(TokenType.IDENT, "Expected identifier").lexeme
-                expect(TokenType.EQ, "Expected '='")
-                val expression = parseExpression()
-                expect(TokenType.SEMI, "Expected ';'")
-
-                return Ast.ImmutableAssignment(identifier, expression)
-            }
+            TokenType.VAL -> return parseVariableDeclaration(mutable = false)
+            TokenType.VAR -> return parseVariableDeclaration(mutable = true)
 
             TokenType.WITH -> {
                 match(TokenType.WITH)
@@ -194,6 +191,15 @@ class Parser(
             }
 
             TokenType.IDENT -> {
+                if (canPeek(1u) && peek(1).type == TokenType.EQ) {
+                    val identifier = consume().lexeme
+                    expect(TokenType.EQ, "Expected '='")
+                    val expression = parseExpression()
+                    expect(TokenType.SEMI, "Expected ';'")
+
+                    return Ast.VariableAssignment(identifier, expression)
+                }
+
                 if (canPeek(3u)
                     && peek(1).type == TokenType.DOT
                     && peek(2).type == TokenType.IDENT
@@ -222,6 +228,16 @@ class Parser(
 
             else -> error("Unexpected token ${peek()} for statement")
         }
+    }
+
+    private fun parseVariableDeclaration(mutable: Boolean): Ast.VariableDeclaration {
+        consume()
+        val identifier = expect(TokenType.IDENT, "Expected identifier").lexeme
+        expect(TokenType.EQ, "Expected '='")
+        val expression = parseExpression()
+        expect(TokenType.SEMI, "Expected ';'")
+
+        return Ast.VariableDeclaration(identifier, expression, mutable)
     }
 
     private fun parseExpression(): Ast.Expr {

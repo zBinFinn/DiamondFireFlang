@@ -7,7 +7,7 @@ enum class TokenType {
 
     FN,
     VAL,
-    MUT,
+    VAR,
     MOD,
     DICT,
     WITH,

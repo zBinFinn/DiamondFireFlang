@@ -58,8 +58,8 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            fn f(x: String) {}
-            fn g(a: Any) { f(a); }
+            fn f(val x: String) {}
+            fn g(val a: Any) { f(a); }
             """.trimIndent()
         )
 
@@ -72,7 +72,7 @@ class TypeCheckerTest {
             """
             mod main;
             dict Foo { x: Number }
-            fn g(a: Any) {
+            fn g(val a: Any) {
                 val y = a.x;
             }
             """.trimIndent()
@@ -104,7 +104,7 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            fn f(x: Number, y: Number) {}
+            fn f(val x: Number, val y: Number) {}
             fn g() { f(1); }
             """.trimIndent()
         )
@@ -156,7 +156,7 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            fn maybe(test: Boolean): Number {
+            fn maybe(val test: Boolean): Number {
                 if (test) {
                     return 1;
                 }
@@ -172,7 +172,7 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            fn pick(test: Boolean): Number {
+            fn pick(val test: Boolean): Number {
                 if (test) {
                     return 1;
                 } else {
@@ -198,5 +198,83 @@ class TypeCheckerTest {
         )
 
         assertTrue(diags.any { it.message.contains("does not return a value") })
+    }
+
+    @Test
+    fun `mutable local can be reassigned`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn f() {
+                var x = 1;
+                x = 2;
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.isEmpty(), "Expected no type errors, got: ${diags.joinToString()}")
+    }
+
+    @Test
+    fun `immutable local cannot be reassigned`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn f() {
+                val x = 1;
+                x = 2;
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("Cannot reassign immutable variable 'x'") })
+    }
+
+    @Test
+    fun `mutable receiver can have fields assigned`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            dict Foo { x: Number }
+            fn f() {
+                var foo = Foo { x: 1 };
+                foo.x = 2;
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.isEmpty(), "Expected no type errors, got: ${diags.joinToString()}")
+    }
+
+    @Test
+    fun `immutable receiver cannot have fields assigned`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            dict Foo { x: Number }
+            fn f() {
+                val foo = Foo { x: 1 };
+                foo.x = 2;
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("Cannot assign field 'x' on immutable variable 'foo'") })
+    }
+
+    @Test
+    fun `function parameter mutability controls reassignment`() {
+        val diags = runTypeCheck(
+            """
+            mod main;
+            fn f(var mutable: Number, val immutable: Number) {
+                mutable = 1;
+                immutable = 2;
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(diags.any { it.message.contains("Cannot reassign immutable variable 'immutable'") })
+        assertTrue(diags.none { it.message.contains("Cannot reassign immutable variable 'mutable'") })
     }
 }

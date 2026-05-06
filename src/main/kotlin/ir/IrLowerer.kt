@@ -145,14 +145,26 @@ class IrLowerer(
         context: LoweringContext
     ) {
         when (stmt) {
-            is Ast.ImmutableAssignment -> {
+            is Ast.VariableDeclaration -> {
                 val name = stmt.identifier
 
-                symbols.define(name, mutable = false)
+                symbols.define(name, mutable = stmt.mutable)
                 out += Ir.SetVariableAction(
                     actionName = "=",
                     args = listOf(
                         Ir.Variable(name),
+                        lowerExpr(stmt.expression, symbols, out, context)
+                    ),
+                    tags = emptyList(),
+                )
+            }
+
+            is Ast.VariableAssignment -> {
+                symbols.assign(stmt.identifier)
+                out += Ir.SetVariableAction(
+                    actionName = "=",
+                    args = listOf(
+                        Ir.Variable(stmt.identifier),
                         lowerExpr(stmt.expression, symbols, out, context)
                     ),
                     tags = emptyList(),
@@ -219,6 +231,7 @@ class IrLowerer(
 
             is Ast.FieldAssignment -> {
                 if (stmt.receiver is Ast.IdentifierExpr) {
+                    symbols.assign(stmt.receiver.name)
                     out += SetVars.setDictValue(
                         stmt.receiver.name,
                         stmt.field,

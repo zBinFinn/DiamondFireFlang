@@ -30,7 +30,7 @@ fn selectDefault() {
 }
 
 @PlayerSelector
-fn selectPlayersByName(name: String) {
+fn selectPlayersByName(val name: String) {
     ir "so \"PByName\" args(s\"${name}\")"
 }
 
@@ -46,7 +46,7 @@ dict PlayerData {
 }
 
 @OnPlayerSelection
-fn savePlayerData(data: PlayerData) {
+fn savePlayerData(val data: PlayerData) {
     val uuid = getUuid();
     save(uuid + " data", data)
 }

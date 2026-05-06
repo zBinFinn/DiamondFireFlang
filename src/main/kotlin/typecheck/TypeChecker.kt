@@ -15,6 +15,11 @@ class TypeChecker(
 ) {
     private val resolver = TypeResolver(typeTable)
 
+    private data class VariableInfo(
+        val type: Type,
+        val mutable: Boolean
+    )
+
     fun check(program: Ast.Program): List<Diagnostic> {
         val diags = mutableListOf<Diagnostic>()
 
@@ -32,7 +37,7 @@ class TypeChecker(
     }
 
     private fun checkFunction(fn: Ast.FunctionDecl, program: Ast.Program, diags: MutableList<Diagnostic>) {
-        val env = mutableMapOf<String, Type>()
+        val env = mutableMapOf<String, VariableInfo>()
         val functionName = fn.name
         val declaredReturnType = fn.returnType?.let {
             resolver.resolve(it, program, diags, function = functionName)
@@ -40,7 +45,7 @@ class TypeChecker(
 
         for (param in fn.parameters) {
             val t = resolver.resolve(param.type, program, diags, function = functionName)
-            env[param.name] = t
+            env[param.name] = VariableInfo(t, param.mutable)
         }
 
         val activeSelection = requiredSelectionType(fn)
@@ -62,12 +67,12 @@ class TypeChecker(
         program: Ast.Program,
         functionName: String,
         expectedReturnType: Type?,
-        env: MutableMap<String, Type>,
+        env: MutableMap<String, VariableInfo>,
         activeSelection: LoweringContext.SelectionType?,
         diags: MutableList<Diagnostic>,
     ) {
         when (stmt) {
-            is Ast.ImmutableAssignment -> {
+            is Ast.VariableDeclaration -> {
                 if (env.containsKey(stmt.identifier)) {
                     diags += Diagnostic(
                         message = "Variable '${stmt.identifier}' already defined.",
@@ -77,7 +82,35 @@ class TypeChecker(
                     checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
                 } else {
                     val t = checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
-                    env[stmt.identifier] = t
+                    env[stmt.identifier] = VariableInfo(t, stmt.mutable)
+                }
+            }
+
+            is Ast.VariableAssignment -> {
+                val variable = env[stmt.identifier]
+                if (variable == null) {
+                    diags += Diagnostic(
+                        message = "Variable '${stmt.identifier}' not defined.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                    checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
+                } else {
+                    val actual = checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
+                    if (!variable.mutable) {
+                        diags += Diagnostic(
+                            message = "Cannot reassign immutable variable '${stmt.identifier}'.",
+                            module = program.module.path,
+                            function = functionName,
+                        )
+                    }
+                    if (!isAssignable(actual, variable.type)) {
+                        diags += Diagnostic(
+                            message = "Cannot assign value of type ${render(actual)} to variable '${stmt.identifier}' of type ${render(variable.type)}.",
+                            module = program.module.path,
+                            function = functionName,
+                        )
+                    }
                 }
             }
 
@@ -93,8 +126,8 @@ class TypeChecker(
                     return
                 }
 
-                val recvType = env[recv.name]
-                if (recvType == null) {
+                val recvInfo = env[recv.name]
+                if (recvInfo == null) {
                     diags += Diagnostic(
                         message = "Variable '${recv.name}' not defined.",
                         module = program.module.path,
@@ -103,8 +136,15 @@ class TypeChecker(
                     checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     return
                 }
+                if (!recvInfo.mutable) {
+                    diags += Diagnostic(
+                        message = "Cannot assign field '${stmt.field}' on immutable variable '${recv.name}'.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                }
 
-                when (recvType) {
+                when (val recvType = recvInfo.type) {
                     Type.AnyType -> {
                         diags += Diagnostic(
                             message = "Cannot assign field '${stmt.field}' on value of type Any.",
@@ -263,7 +303,7 @@ class TypeChecker(
         call: Ast.FunctionCall,
         program: Ast.Program,
         functionName: String,
-        env: MutableMap<String, Type>,
+        env: MutableMap<String, VariableInfo>,
         activeSelection: LoweringContext.SelectionType?,
         diags: MutableList<Diagnostic>,
         contextOverride: FunctionResolver.Context? = null,
@@ -311,7 +351,7 @@ class TypeChecker(
         expr: Ast.Expr,
         program: Ast.Program,
         functionName: String,
-        env: MutableMap<String, Type>,
+        env: MutableMap<String, VariableInfo>,
         diags: MutableList<Diagnostic>,
         activeSelection: LoweringContext.SelectionType? = null,
     ): Type {
@@ -321,7 +361,7 @@ class TypeChecker(
             is Ast.BoolExpr -> Type.BooleanType
 
             is Ast.IdentifierExpr -> {
-                env[expr.name] ?: run {
+                env[expr.name]?.type ?: run {
                     diags += Diagnostic(
                         message = "Variable '${expr.name}' not defined.",
                         module = program.module.path,
@@ -448,7 +488,7 @@ class TypeChecker(
         expr: Ast.DictLiteralExpr,
         program: Ast.Program,
         functionName: String,
-        env: MutableMap<String, Type>,
+        env: MutableMap<String, VariableInfo>,
         diags: MutableList<Diagnostic>,
         activeSelection: LoweringContext.SelectionType? = null,
     ): Type {

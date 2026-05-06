@@ -8,7 +8,7 @@ dict FunnyNess {
 }
 
 @OnPlayerSelection
-fn sendFunny(funny: FunnyNess) {
+fn sendFunny(val funny: FunnyNess) {
     sendMessage("Level:");
     sendMessage(funny.level);
     sendMessage("Message:");

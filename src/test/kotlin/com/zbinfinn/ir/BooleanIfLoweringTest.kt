@@ -57,7 +57,7 @@ class BooleanIfLoweringTest {
             dict FunnyNess { level: Number, message: String }
             
             @OnPlayerSelection
-            fn sendFunny(funny: FunnyNess) {
+            fn sendFunny(val funny: FunnyNess) {
                 sendMessage(funny.level);
                 sendMessage(funny.message);
             }
@@ -90,4 +90,3 @@ class BooleanIfLoweringTest {
         assertTrue(emittedDf.contains("iv NOT \"=\" args(n\"0\", n\"1\")"))
     }
 }
-
