@@ -22,6 +22,7 @@ class Tokenizer(
         "var" to TokenType.VAR,
         "mod" to TokenType.MOD,
         "dict" to TokenType.DICT,
+        "impl" to TokenType.IMPL,
         "with" to TokenType.WITH,
         "import" to TokenType.IMPORT,
         "package" to TokenType.PACKAGE,

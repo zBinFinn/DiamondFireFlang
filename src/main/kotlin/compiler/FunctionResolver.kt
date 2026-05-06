@@ -44,6 +44,11 @@ class FunctionResolver(
         }
     }
 
+    fun resolveMember(typeQualifiedName: String, name: String): FunctionSymbol {
+        return globals.resolveMember(typeQualifiedName, name)
+            ?: error("Unresolved member function '$typeQualifiedName.$name'")
+    }
+
     private fun choose(
         name: String,
         candidates: List<FunctionSymbol>,

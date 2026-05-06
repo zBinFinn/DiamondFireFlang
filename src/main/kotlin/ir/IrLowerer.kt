@@ -11,13 +11,15 @@ import com.zbinfinn.common.requiresSelection
 import com.zbinfinn.common.selectorType
 import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
+import com.zbinfinn.compiler.GlobalTypeTable
 import com.zbinfinn.stdlib.ImportContext
 import com.zbinfinn.stdlib.StdlibAst
 
 class IrLowerer(
     private val astProgram: Ast.Program,
     private val globals: GlobalFunctionTable,
-    private val functionResolver: FunctionResolver
+    private val functionResolver: FunctionResolver,
+    private val typeTable: GlobalTypeTable? = null,
 ) {
     private companion object {
         const val RETURN_PARAMETER_NAME = "\$return"
@@ -64,6 +66,15 @@ class IrLowerer(
             functions += lowerFunction(fn.decl, fn.modulePath, context)
         }
 
+        for (impl in astProgram.impls) {
+            val typeQualifiedName = "${astProgram.module.path}.${impl.typeName}"
+            for (function in impl.functions) {
+                val symbol = globals.resolveMember(typeQualifiedName, function.name)
+                    ?: error("Registered member function '$typeQualifiedName.${function.name}' not found")
+                functions += lowerFunction(function, astProgram.module.path, context, symbol)
+            }
+        }
+
         return Ir.Program(entryPoints, functions)
     }
 
@@ -92,7 +103,12 @@ class IrLowerer(
         }
     }
 
-    private fun lowerFunction(function: Ast.FunctionDecl, modulePath: String, context: LoweringContext): Ir.Function {
+    private fun lowerFunction(
+        function: Ast.FunctionDecl,
+        modulePath: String,
+        context: LoweringContext,
+        symbolOverride: com.zbinfinn.compiler.FunctionSymbol? = null
+    ): Ir.Function {
         context.resetTempVariableIndex()
 
         val requiresSelection = requiresSelection(function)
@@ -106,7 +122,7 @@ class IrLowerer(
         val parameters = mutableListOf<Ir.Parameter>()
         for (param in function.parameters) {
             parameters += lowerParameter(param)
-            symbols.define(param.name, mutable = param.mutable)
+            symbols.define(param.name, mutable = param.mutable, typeQualifiedName = resolveDictType(param.type))
         }
         if (function.returnType != null) {
             parameters += Ir.Parameter(RETURN_PARAMETER_NAME, mutable = true)
@@ -126,7 +142,7 @@ class IrLowerer(
             context.selectionStack.removeLast()
         }
 
-        val functionSymbol = globals.resolveInModule(modulePath, function.name, functionKind(function))
+        val functionSymbol = symbolOverride ?: globals.resolveInModule(modulePath, function.name, functionKind(function))
             ?: error("Registered symbol for function '${function.name}' not found")
         return Ir.Function(functionSymbol.qualifiedName, parameters, body)
     }
@@ -147,13 +163,18 @@ class IrLowerer(
         when (stmt) {
             is Ast.VariableDeclaration -> {
                 val name = stmt.identifier
+                val value = lowerExpr(stmt.expression, symbols, out, context)
 
-                symbols.define(name, mutable = stmt.mutable)
+                symbols.define(
+                    name,
+                    mutable = stmt.mutable,
+                    typeQualifiedName = expressionDictType(stmt.expression, symbols)
+                )
                 out += Ir.SetVariableAction(
                     actionName = "=",
                     args = listOf(
                         Ir.Variable(name),
-                        lowerExpr(stmt.expression, symbols, out, context)
+                        value
                     ),
                     tags = emptyList(),
                 )
@@ -223,6 +244,10 @@ class IrLowerer(
                 }
 
                 lowerFunctionCall(stmt, out, symbols, context)
+            }
+
+            is Ast.MemberFunctionCall -> {
+                lowerMemberFunctionCall(stmt, out, symbols, context, requireReturn = false)
             }
 
             is Ast.InlineIr -> {
@@ -377,7 +402,8 @@ class IrLowerer(
         return when (expr) {
             is Ast.BoolExpr -> Ir.NumberValue(if (expr.value) 1 else 0)
 
-            is Ast.FunctionCallExpr -> lowerExpr(expr, symbols, out, context)
+            is Ast.FunctionCallExpr,
+            is Ast.MemberFunctionCall -> lowerExpr(expr, symbols, out, context)
 
             is Ast.IdentifierExpr -> {
                 symbols.resolve(expr.name)
@@ -502,6 +528,61 @@ class IrLowerer(
         )
     }
 
+    private fun lowerMemberFunctionCall(
+        call: Ast.MemberFunctionCall,
+        out: MutableList<Ir.Instr>,
+        symbols: SymbolTable,
+        context: LoweringContext,
+        requireReturn: Boolean,
+    ): Ir.Variable? {
+        val resolution = resolveMemberCall(call, symbols)
+        val returnTemp = if (resolution.symbol.decl.returnType != null) {
+            Ir.Variable(context.newTempVariableName())
+        } else {
+            if (requireReturn) {
+                error("Member function '${call.name}' does not return a value")
+            }
+            null
+        }
+
+        val receiverArgs = resolution.receiver?.let { listOf(lowerExpr(it, symbols, out, context)) } ?: emptyList()
+        val args = receiverArgs + call.args.map { lowerExpr(it, symbols, out, context) } + listOfNotNull(returnTemp)
+        out += Ir.CallFunction(resolution.symbol.qualifiedName, args)
+        return returnTemp
+    }
+
+    private data class MemberResolution(
+        val symbol: com.zbinfinn.compiler.FunctionSymbol,
+        val receiver: Ast.Expr?,
+    )
+
+    private fun resolveMemberCall(call: Ast.MemberFunctionCall, symbols: SymbolTable): MemberResolution {
+        val staticReceiver = call.receiver as? Ast.IdentifierExpr
+        val staticType = staticReceiver
+            ?.takeIf { runCatching { symbols.resolve(it.name) }.getOrNull() == null }
+            ?.let { requireTypeTable().resolve(it.name, astProgram) }
+
+        if (staticType != null) {
+            val symbol = functionResolver.resolveMember(staticType.qualifiedName, call.name)
+            if (!symbol.isStaticMember) {
+                error("Member function '${call.name}' requires an instance")
+            }
+            return MemberResolution(symbol, null)
+        }
+
+        val receiverType = expressionDictType(call.receiver, symbols)
+            ?: error("Cannot resolve receiver type for member function '${call.name}'")
+        val symbol = functionResolver.resolveMember(receiverType, call.name)
+        if (symbol.isStaticMember) {
+            error("Static member function '${call.name}' must be called on a type")
+        }
+        val thisParam = symbol.decl.parameters.firstOrNull()
+        if (thisParam?.mutable == true && call.receiver is Ast.IdentifierExpr) {
+            symbols.assign(call.receiver.name)
+        }
+        return MemberResolution(symbol, call.receiver)
+    }
+
     private fun emitSelectionReset(out: MutableList<Ir.Instr>) {
         out.add(
             Ir.SelectObject(
@@ -563,6 +644,11 @@ class IrLowerer(
                 }
             }
 
+            is Ast.MemberFunctionCall -> {
+                lowerMemberFunctionCall(expr, out, symbols, context, requireReturn = true)
+                    ?: error("Member function '${expr.name}' does not return a value")
+            }
+
             is Ast.FunctionCallExpr -> {
                 val functionSymbol = functionResolver.resolve(
                     expr.name,
@@ -581,6 +667,43 @@ class IrLowerer(
                 Ir.Variable(temp)
             }
         }
+    }
+
+    private fun expressionDictType(expr: Ast.Expr, symbols: SymbolTable): String? {
+        return when (expr) {
+            is Ast.IdentifierExpr -> symbols.resolve(expr.name).typeQualifiedName
+            is Ast.DictLiteralExpr -> requireTypeTable().resolve(expr.typeName, astProgram)?.qualifiedName
+            is Ast.FieldAccessExpr -> {
+                val receiverTypeName = expressionDictType(expr.receiver, symbols) ?: return null
+                val receiverDecl = requireTypeTable().resolveQualified(receiverTypeName)?.decl ?: return null
+                val field = receiverDecl.fields.firstOrNull { it.name == expr.field } ?: return null
+                resolveDictType(field.type)
+            }
+            is Ast.FunctionCallExpr -> {
+                val symbol = functionResolver.resolve(
+                    expr.name,
+                    astProgram,
+                    functionResolver.contextForSelection(null)
+                )
+                symbol.decl.returnType?.let { resolveDictType(it) }
+            }
+            is Ast.MemberFunctionCall -> {
+                val symbol = resolveMemberCall(expr, symbols).symbol
+                symbol.decl.returnType?.let { resolveDictType(it) }
+            }
+            else -> null
+        }
+    }
+
+    private fun resolveDictType(type: Ast.Type): String? {
+        if (type.identifier in setOf("String", "Number", "Boolean", "boolean", "Any")) {
+            return null
+        }
+        return requireTypeTable().resolve(type.identifier, astProgram)?.qualifiedName
+    }
+
+    private fun requireTypeTable(): GlobalTypeTable {
+        return typeTable ?: error("Type table is required for member function lowering")
     }
 
     enum class FunctionSource {

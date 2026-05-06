@@ -5,11 +5,11 @@ import com.zbinfinn.common.VariableScope
 class SymbolTable {
     private val variables = mutableMapOf<String, VariableSymbol>()
 
-    fun define(name: String, scope: VariableScope = VariableScope.LINE, mutable: Boolean) {
+    fun define(name: String, scope: VariableScope = VariableScope.LINE, mutable: Boolean, typeQualifiedName: String? = null) {
         if (variables.containsKey(name)) {
             error("Variable $name already defined")
         }
-        variables[name] = VariableSymbol(name, scope, mutable)
+        variables[name] = VariableSymbol(name, scope, mutable, typeQualifiedName)
     }
 
     fun assign(name: String) {
@@ -30,5 +30,6 @@ class SymbolTable {
 data class VariableSymbol(
     val name: String,
     val scope: VariableScope,
-    val mutable: Boolean
+    val mutable: Boolean,
+    val typeQualifiedName: String? = null,
 )

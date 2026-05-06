@@ -67,7 +67,7 @@ fun main() {
     }
 
     val irPrograms = programs.map { program ->
-        IrLowerer(program, globals, resolver).lowerProgram()
+        IrLowerer(program, globals, resolver, typeTable).lowerProgram()
     }
 
     val emittedDf = irPrograms.joinToString(separator = "\n") { program ->

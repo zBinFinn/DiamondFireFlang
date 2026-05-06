@@ -29,6 +29,19 @@ class TypeChecker(
             }
         }
 
+        for (impl in program.impls) {
+            if (typeTable.resolve(impl.typeName, program) == null) {
+                diags += Diagnostic(
+                    message = "Unknown impl type '${impl.typeName}'.",
+                    module = program.module.path,
+                    function = null,
+                )
+            }
+            for (fn in impl.functions) {
+                checkFunction(fn, program, diags, ownerType = impl.typeName)
+            }
+        }
+
         for (fn in program.functions) {
             checkFunction(fn, program, diags)
         }
@@ -36,9 +49,14 @@ class TypeChecker(
         return diags
     }
 
-    private fun checkFunction(fn: Ast.FunctionDecl, program: Ast.Program, diags: MutableList<Diagnostic>) {
+    private fun checkFunction(
+        fn: Ast.FunctionDecl,
+        program: Ast.Program,
+        diags: MutableList<Diagnostic>,
+        ownerType: String? = null
+    ) {
         val env = mutableMapOf<String, VariableInfo>()
-        val functionName = fn.name
+        val functionName = ownerType?.let { "$it.${fn.name}" } ?: fn.name
         val declaredReturnType = fn.returnType?.let {
             resolver.resolve(it, program, diags, function = functionName)
         }
@@ -165,6 +183,13 @@ class TypeChecker(
                             checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                             return
                         }
+                        if (!fieldDecl.mutable) {
+                            diags += Diagnostic(
+                                message = "Cannot assign immutable field '${stmt.field}' on dict '${recvType.qualifiedName}'.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
 
                         val expected = resolver.resolve(fieldDecl.type, program, diags, functionName)
                         val actual = checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
@@ -190,6 +215,10 @@ class TypeChecker(
                         checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
                     }
                 }
+            }
+
+            is Ast.MemberFunctionCall -> {
+                checkMemberFunctionCall(stmt, program, functionName, env, activeSelection, diags, requireReturn = false)
             }
 
             is Ast.FunctionCall -> checkFunctionCall(stmt, program, functionName, env, activeSelection, diags)
@@ -299,6 +328,93 @@ class TypeChecker(
         }
     }
 
+    private fun checkMemberFunctionCall(
+        call: Ast.MemberFunctionCall,
+        program: Ast.Program,
+        functionName: String,
+        env: MutableMap<String, VariableInfo>,
+        activeSelection: LoweringContext.SelectionType?,
+        diags: MutableList<Diagnostic>,
+        requireReturn: Boolean,
+    ): Type {
+        val staticReceiver = call.receiver as? Ast.IdentifierExpr
+        val staticType = staticReceiver
+            ?.takeIf { !env.containsKey(it.name) }
+            ?.let { typeTable.resolve(it.name, program) }
+
+        val symbol = if (staticType != null) {
+            resolveMember(staticType.qualifiedName, call.name, program, functionName, diags)?.also {
+                if (!it.isStaticMember) {
+                    diags += Diagnostic(
+                        message = "Member function '${call.name}' requires an instance of '${staticType.simpleName}'.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                }
+            }
+        } else {
+            val receiverType = checkExpr(call.receiver, program, functionName, env, diags, activeSelection)
+            if (receiverType !is Type.Dict) {
+                if (receiverType != Type.Error) {
+                    diags += Diagnostic(
+                        message = "Cannot call member function '${call.name}' on ${render(receiverType)}.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                }
+                null
+            } else {
+                resolveMember(receiverType.qualifiedName, call.name, program, functionName, diags)?.also {
+                    if (it.isStaticMember) {
+                        diags += Diagnostic(
+                            message = "Static member function '${call.name}' must be called on type '${receiverType.decl.name}'.",
+                            module = program.module.path,
+                            function = functionName,
+                        )
+                    }
+
+                    val thisParam = it.decl.parameters.firstOrNull()
+                    if (thisParam?.mutable == true) {
+                        val receiverInfo = (call.receiver as? Ast.IdentifierExpr)?.let { receiver -> env[receiver.name] }
+                        if (receiverInfo?.mutable != true) {
+                            diags += Diagnostic(
+                                message = "Member function '${call.name}' requires a mutable receiver.",
+                                module = program.module.path,
+                                function = functionName,
+                            )
+                        }
+                    }
+                }
+            }
+        } ?: run {
+            for (arg in call.args) {
+                checkExpr(arg, program, functionName, env, diags, activeSelection)
+            }
+            return Type.Error
+        }
+
+        val params = if (symbol.isStaticMember) {
+            symbol.decl.parameters
+        } else {
+            symbol.decl.parameters.drop(1)
+        }
+        checkArguments(call.name, call.args, params, program, functionName, env, activeSelection, diags)
+
+        val returnType = symbol.decl.returnType
+        if (returnType == null) {
+            if (requireReturn) {
+                diags += Diagnostic(
+                    message = "Member function '${call.name}' does not return a value.",
+                    module = program.module.path,
+                    function = functionName,
+                )
+            }
+            return Type.Error
+        }
+
+        return resolver.resolve(returnType, program, diags, functionName)
+    }
+
     private fun checkFunctionCall(
         call: Ast.FunctionCall,
         program: Ast.Program,
@@ -316,16 +432,30 @@ class TypeChecker(
             return null
         }
 
-        val params = symbol.decl.parameters
-        if (call.args.size != params.size) {
+        checkArguments(call.name, call.args, symbol.decl.parameters, program, functionName, env, activeSelection, diags)
+
+        return symbol
+    }
+
+    private fun checkArguments(
+        callName: String,
+        args: List<Ast.Expr>,
+        params: List<Ast.Parameter>,
+        program: Ast.Program,
+        functionName: String,
+        env: MutableMap<String, VariableInfo>,
+        activeSelection: LoweringContext.SelectionType?,
+        diags: MutableList<Diagnostic>,
+    ) {
+        if (args.size != params.size) {
             diags += Diagnostic(
-                message = "Function '${call.name}' expects ${params.size} argument(s) but got ${call.args.size}.",
+                message = "Function '$callName' expects ${params.size} argument(s) but got ${args.size}.",
                 module = program.module.path,
                 function = functionName,
             )
         }
 
-        val pairs = call.args.zip(params)
+        val pairs = args.zip(params)
         for ((argExpr, param) in pairs) {
             val actual = checkExpr(argExpr, program, functionName, env, diags, activeSelection)
             val expected = resolver.resolve(param.type, program, diags, function = functionName)
@@ -338,13 +468,11 @@ class TypeChecker(
             }
         }
 
-        if (call.args.size > params.size) {
-            for (argExpr in call.args.drop(params.size)) {
+        if (args.size > params.size) {
+            for (argExpr in args.drop(params.size)) {
                 checkExpr(argExpr, program, functionName, env, diags, activeSelection)
             }
         }
-
-        return symbol
     }
 
     private fun checkExpr(
@@ -394,6 +522,10 @@ class TypeChecker(
                 } else {
                     resolver.resolve(returnType, program, diags, functionName)
                 }
+            }
+
+            is Ast.MemberFunctionCall -> {
+                checkMemberFunctionCall(expr, program, functionName, env, activeSelection, diags, requireReturn = true)
             }
 
             is Ast.FieldAccessExpr -> {
@@ -566,6 +698,25 @@ class TypeChecker(
         } catch (t: Throwable) {
             diags += Diagnostic(
                 message = t.message ?: "Unresolved function '$name'.",
+                module = program.module.path,
+                function = functionName,
+            )
+            null
+        }
+    }
+
+    private fun resolveMember(
+        typeQualifiedName: String,
+        name: String,
+        program: Ast.Program,
+        functionName: String,
+        diags: MutableList<Diagnostic>,
+    ): com.zbinfinn.compiler.FunctionSymbol? {
+        return try {
+            functionResolver.resolveMember(typeQualifiedName, name)
+        } catch (t: Throwable) {
+            diags += Diagnostic(
+                message = t.message ?: "Unresolved member function '$typeQualifiedName.$name'.",
                 module = program.module.path,
                 function = functionName,
             )

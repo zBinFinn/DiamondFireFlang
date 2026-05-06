@@ -71,7 +71,7 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            dict Foo { x: Number }
+            dict Foo { var x: Number }
             fn g(val a: Any) {
                 val y = a.x;
             }
@@ -86,7 +86,7 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            dict Foo { a: Number, b: String }
+            dict Foo { var a: Number, val b: String }
             fn t() {
                 val x = Foo { a: "nope", c: 3 };
             }
@@ -235,7 +235,7 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            dict Foo { x: Number }
+            dict Foo { var x: Number }
             fn f() {
                 var foo = Foo { x: 1 };
                 foo.x = 2;
@@ -251,7 +251,7 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            dict Foo { x: Number }
+            dict Foo { var x: Number }
             fn f() {
                 val foo = Foo { x: 1 };
                 foo.x = 2;

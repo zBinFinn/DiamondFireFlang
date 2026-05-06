@@ -48,4 +48,7 @@ class GlobalTypeTable {
 
         return null
     }
+
+    fun resolveQualified(name: String): DictSymbol? =
+        byQualified[name]
 }

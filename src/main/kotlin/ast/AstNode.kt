@@ -9,6 +9,7 @@ object Ast {
         val module: ModuleDecl,
         val imports: List<Import>,
         val dicts: List<DictDecl>,
+        val impls: List<ImplDecl>,
         val functions: List<FunctionDecl>
     ) : AstNode
 
@@ -23,8 +24,14 @@ object Ast {
 
     data class Field(
         val name: String,
-        val type: Type
+        val type: Type,
+        val mutable: Boolean,
     )
+
+    data class ImplDecl(
+        val typeName: String,
+        val functions: List<FunctionDecl>
+    ) : AstNode
 
     data class FunctionDecl(
         val name: String,
@@ -73,6 +80,12 @@ object Ast {
         val name: String,
         val args: List<Expr>,
     ) : Statement
+
+    data class MemberFunctionCall(
+        val receiver: Expr,
+        val name: String,
+        val args: List<Expr>,
+    ) : Statement, Expr
 
     data class WithBlock(
         val selectorFunction: FunctionCall,

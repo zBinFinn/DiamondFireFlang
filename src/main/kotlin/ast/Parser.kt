@@ -32,6 +32,7 @@ class Parser(
         val imports = mutableListOf<Ast.Import>()
         val functions = mutableListOf<Ast.FunctionDecl>()
         val dicts = mutableListOf<Ast.DictDecl>()
+        val impls = mutableListOf<Ast.ImplDecl>()
 
         while (match(TokenType.IMPORT)) {
             imports += parseImport();
@@ -41,11 +42,12 @@ class Parser(
             when {
                 peek().type == TokenType.FN || peek().type == TokenType.AT -> functions += parseFunction();
                 peek().type == TokenType.DICT -> dicts += parseDict();
+                peek().type == TokenType.IMPL -> impls += parseImpl();
                 else -> error("Unexpected token '${peek()}'")
             }
         }
 
-        return Ast.Program(module, imports, dicts, functions)
+        return Ast.Program(module, imports, dicts, impls, functions)
     }
 
     private fun parseDict(): Ast.DictDecl {
@@ -62,10 +64,15 @@ class Parser(
     }
 
     private fun parseField(): Ast.Field {
+        val mutable = when {
+            match(TokenType.VAL) -> false
+            match(TokenType.VAR) -> true
+            else -> error("Expected 'val' or 'var' before field name at ${peek().position}")
+        }
         val name = expect(TokenType.IDENT, "Expected field name").lexeme
         expect(TokenType.COLON, "Expected ':' after field name")
         val type = parseType()
-        return Ast.Field(name, type)
+        return Ast.Field(name, type, mutable)
     }
 
     private fun parseType(): Ast.Type {
@@ -86,13 +93,26 @@ class Parser(
         )
     }
 
-    private fun parseFunctionParameter(): Ast.Parameter {
+    private fun parseFunctionParameter(implicitThisType: String? = null): Ast.Parameter {
         val mutable = when {
             match(TokenType.VAL) -> false
             match(TokenType.VAR) -> true
             else -> error("Expected 'val' or 'var' before parameter name at ${peek().position}")
         }
         val identifier = expect(TokenType.IDENT, "Expected parameter name").lexeme
+        if (identifier == "this") {
+            if (implicitThisType == null) {
+                error("'this' parameters are only allowed inside impl blocks")
+            }
+            if (peek().type == TokenType.COLON) {
+                error("'this' parameter type is inferred from the impl block")
+            }
+            return Ast.Parameter(
+                identifier,
+                Ast.Type(implicitThisType),
+                mutable
+            )
+        }
         expect(TokenType.COLON, "Expected ':' after parameter name")
         val type = expect(TokenType.IDENT, "Expected parameter type").lexeme
         return Ast.Parameter(
@@ -102,7 +122,7 @@ class Parser(
         )
     }
 
-    private fun parseFunction(): Ast.FunctionDecl {
+    private fun parseFunction(implicitThisType: String? = null): Ast.FunctionDecl {
         val annotations = mutableListOf<Ast.Annotation>()
 
         while (match(TokenType.AT)) {
@@ -116,7 +136,7 @@ class Parser(
         val parameters = mutableListOf<Ast.Parameter>()
         if (peek().type != TokenType.RPAREN) {
             do {
-                parameters.add(parseFunctionParameter())
+                parameters.add(parseFunctionParameter(implicitThisType))
             } while (match(TokenType.COMMA))
         }
         expect(TokenType.RPAREN, "Expected ')'")
@@ -130,6 +150,18 @@ class Parser(
         val block = parseBlock()
 
         return Ast.FunctionDecl(name, annotations, parameters, returnType, block)
+    }
+
+    private fun parseImpl(): Ast.ImplDecl {
+        expect(TokenType.IMPL, "Expected 'impl'")
+        val typeName = expect(TokenType.IDENT, "Expected impl type name").lexeme
+        expect(TokenType.LBRACE, "Expected '{' after impl type name")
+        val functions = mutableListOf<Ast.FunctionDecl>()
+        while (peek().type != TokenType.RBRACE) {
+            functions += parseFunction(typeName)
+        }
+        expect(TokenType.RBRACE, "Expected '}' after impl block")
+        return Ast.ImplDecl(typeName, functions)
     }
 
     private fun parseBlock(): Ast.Block {
@@ -223,7 +255,13 @@ class Parser(
                 if (functionCall != null) {
                     return functionCall
                 }
-                TODO()
+
+                val expr = parseExpression()
+                expect(TokenType.SEMI, "Expected ';'")
+                if (expr is Ast.MemberFunctionCall) {
+                    return expr
+                }
+                error("Expected function call statement")
             }
 
             else -> error("Unexpected token ${peek()} for statement")
@@ -286,10 +324,18 @@ class Parser(
         while (match(TokenType.DOT)) {
             val fieldName = expect(TokenType.IDENT, "Expected field name after '.'").lexeme
 
-            expr = Ast.FieldAccessExpr(
-                receiver = expr,
-                field = fieldName,
-            )
+            expr = if (match(TokenType.LPAREN)) {
+                Ast.MemberFunctionCall(
+                    receiver = expr,
+                    name = fieldName,
+                    args = parseCallArgumentsAfterOpenParen()
+                )
+            } else {
+                Ast.FieldAccessExpr(
+                    receiver = expr,
+                    field = fieldName,
+                )
+            }
         }
 
         return expr
@@ -320,15 +366,7 @@ class Parser(
                 }
 
                 if (match(TokenType.LPAREN)) {
-                    val arguments = mutableListOf<Ast.Expr>()
-                    if (!match(TokenType.RPAREN)) {
-                        do {
-                            arguments += parseExpression()
-                        } while (match(TokenType.COMMA))
-                        expect(TokenType.RPAREN, "Expected ')'")
-                    }
-
-                    return Ast.FunctionCallExpr(identifier, arguments)
+                    return Ast.FunctionCallExpr(identifier, parseCallArgumentsAfterOpenParen())
                 }
 
                 return Ast.IdentifierExpr(identifier)
@@ -343,6 +381,17 @@ class Parser(
 
             else -> error("Unexpected Token ${peek()} for expression")
         }
+    }
+
+    private fun parseCallArgumentsAfterOpenParen(): List<Ast.Expr> {
+        val arguments = mutableListOf<Ast.Expr>()
+        if (!match(TokenType.RPAREN)) {
+            do {
+                arguments += parseExpression()
+            } while (match(TokenType.COMMA))
+            expect(TokenType.RPAREN, "Expected ')'")
+        }
+        return arguments
     }
 
     private fun parseIfStmt(): Ast.IfStmt {

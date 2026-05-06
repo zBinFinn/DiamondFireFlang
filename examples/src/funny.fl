@@ -3,8 +3,25 @@ mod funny;
 import std.player.sendMessage;
 
 dict FunnyNess {
-   level: Number,
-   message: String
+   var level: Number,
+   val message: String
+}
+
+impl FunnyNess {
+    fn setLevel(var this, val level: Number) {
+        this.level = level;
+    }
+
+    fn getLevel(val this): Number {
+        return this.level;
+    }
+
+    fn new(): FunnyNess {
+        return FunnyNess {
+            level: 0,
+            message: "Really Funny"
+        }
+    }
 }
 
 @OnPlayerSelection

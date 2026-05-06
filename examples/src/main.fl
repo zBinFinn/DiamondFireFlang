@@ -57,7 +57,7 @@ fn join() {
 }
 
 dict FunnierFunnyNess {
-   funnyNess: FunnyNess
+   val funnyNess: FunnyNess
 }
 
 @OnPlayerSelection

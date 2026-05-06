@@ -40,9 +40,9 @@ fn funny() {
 }
 
 dict PlayerData {
-    money: Number,
-    spermCount: Number,
-    isCool: Boolean
+    val money: Number,
+    val funky: Number,
+    val isCool: Boolean
 }
 
 @OnPlayerSelection

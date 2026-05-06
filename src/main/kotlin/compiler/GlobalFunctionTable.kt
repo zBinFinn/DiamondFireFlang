@@ -12,11 +12,14 @@ data class FunctionSymbol(
     val kind: FunctionKind,
     val decl: Ast.FunctionDecl,
     val program: Ast.Program?,
+    val memberOf: String? = null,
+    val isStaticMember: Boolean = false,
 )
 
 class GlobalFunctionTable {
     private val byQualified = mutableMapOf<String, MutableList<FunctionSymbol>>()
     private val byModule = mutableMapOf<String, MutableMap<String, MutableList<FunctionSymbol>>>()
+    private val byMember = mutableMapOf<String, MutableMap<String, FunctionSymbol>>()
 
     fun register(program: Ast.Program) {
         val modulePath = program.module.path
@@ -39,6 +42,10 @@ class GlobalFunctionTable {
 
             existing += symbol
             byQualified.getOrPut("$modulePath.${fn.name}") { mutableListOf() } += symbol
+        }
+
+        for (impl in program.impls) {
+            registerImpl(modulePath, impl, program)
         }
     }
 
@@ -77,8 +84,39 @@ class GlobalFunctionTable {
     fun resolveInModule(module: String, name: String, kind: FunctionKind): FunctionSymbol? =
         byModule[module]?.get(name)?.singleOrNull { it.kind == kind }
 
+    fun resolveMember(typeQualifiedName: String, name: String): FunctionSymbol? =
+        byMember[typeQualifiedName]?.get(name)
+
     fun allFunctions(): Set<FunctionSymbol> =
-        byQualified.values.flatten().toSet()
+        byQualified.values.flatten().plus(byMember.values.flatMap { it.values }).toSet()
+
+    private fun registerImpl(modulePath: String, impl: Ast.ImplDecl, program: Ast.Program) {
+        val typeQualifiedName = "$modulePath.${impl.typeName}"
+        val memberMap = byMember.getOrPut(typeQualifiedName) { mutableMapOf() }
+
+        for (fn in impl.functions) {
+            if (memberMap.containsKey(fn.name)) {
+                error("Duplicate member function '${fn.name}' for '$typeQualifiedName'")
+            }
+            if (functionKind(fn) != FunctionKind.Plain) {
+                error("Member function '${fn.name}' may not use function role annotations")
+            }
+
+            val qualifiedName = "$typeQualifiedName.${fn.name}"
+            val symbol = FunctionSymbol(
+                qualifiedName = qualifiedName,
+                simpleName = fn.name,
+                modulePath = modulePath,
+                kind = FunctionKind.Plain,
+                decl = fn,
+                program = program,
+                memberOf = typeQualifiedName,
+                isStaticMember = fn.parameters.firstOrNull()?.name != "this"
+            )
+
+            memberMap[fn.name] = symbol
+        }
+    }
 
     private fun validateCanRegister(
         modulePath: String,

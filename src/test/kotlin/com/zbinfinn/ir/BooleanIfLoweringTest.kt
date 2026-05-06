@@ -54,7 +54,7 @@ class BooleanIfLoweringTest {
             
             import std.player.sendMessage;
             
-            dict FunnyNess { level: Number, message: String }
+            dict FunnyNess { val level: Number, val message: String }
             
             @OnPlayerSelection
             fn sendFunny(val funny: FunnyNess) {
@@ -81,7 +81,7 @@ class BooleanIfLoweringTest {
         assertTrue(diags.isEmpty(), "Expected no type errors, got: ${diags.joinToString()}")
 
         val emittedDf = programs.joinToString("\n") { program ->
-            val ir = IrLowerer(program, globals, resolver).lowerProgram()
+            val ir = IrLowerer(program, globals, resolver, typeTable).lowerProgram()
             DfEmitter().emit(ir)
         }
 

@@ -10,6 +10,7 @@ enum class TokenType {
     VAR,
     MOD,
     DICT,
+    IMPL,
     WITH,
     IMPORT,
     PACKAGE,
