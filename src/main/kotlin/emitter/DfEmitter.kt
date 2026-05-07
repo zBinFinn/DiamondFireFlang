@@ -112,6 +112,9 @@ class DfEmitter {
             is Ir.Variable -> "vLI\"${value.name}\"" // TODO: not just line variables
             is Ir.Parameter -> "${if (value.mutable) "pm" else "p"}\"${value.name}\""
             is Ir.SingletonValue -> error("Singleton value '${value.qualifiedName}' has no DiamondFire representation")
+            is Ir.GameValue -> value.target
+                ?.let { """gvT"${escape(value.name)}|${escape(it)}"""" }
+                ?: """gv"${escape(value.name)}""""
         }
     }
 

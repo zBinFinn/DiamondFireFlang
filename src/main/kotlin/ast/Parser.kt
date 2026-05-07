@@ -32,6 +32,7 @@ class Parser(
         val imports = mutableListOf<Ast.Import>()
         val functions = mutableListOf<Ast.FunctionDecl>()
         val dicts = mutableListOf<Ast.DictDecl>()
+        val enums = mutableListOf<Ast.EnumDecl>()
         val singletons = mutableListOf<Ast.SingletonDecl>()
         val impls = mutableListOf<Ast.ImplDecl>()
 
@@ -51,13 +52,37 @@ class Parser(
                     }
                 }
                 peek().type == TokenType.DICT -> dicts += parseDict();
+                peek().type == TokenType.ENUM -> enums += parseEnum();
                 peek().type == TokenType.SINGLETON -> singletons += parseSingleton(emptyList());
                 peek().type == TokenType.IMPL -> impls += parseImpl();
                 else -> error("Unexpected token '${peek()}'")
             }
         }
 
-        return Ast.Program(module, imports, dicts, singletons, impls, functions)
+        return Ast.Program(module, imports, dicts, enums, singletons, impls, functions)
+    }
+
+    private fun parseEnum(): Ast.EnumDecl {
+        expect(TokenType.ENUM, "Expected 'enum'")
+        val enumName = expect(TokenType.IDENT, "Expected enum identifier").lexeme
+        expect(TokenType.LBRACE, "Expected '{' after enum name")
+        val cases = mutableListOf<Ast.EnumDecl.EnumCase>()
+        if (peek().type != TokenType.RBRACE) {
+            while (true) {
+                val caseName = expect(TokenType.IDENT, "Expected enum case").lexeme
+                val value = if (match(TokenType.EQ)) {
+                    expect(TokenType.STRING_LIT, "Expected string literal after enum case '='").lexeme
+                } else {
+                    null
+                }
+                cases += Ast.EnumDecl.EnumCase(caseName, value)
+                if (!match(TokenType.COMMA) || peek().type == TokenType.RBRACE) {
+                    break
+                }
+            }
+        }
+        expect(TokenType.RBRACE, "Expected '}' after enum cases")
+        return Ast.EnumDecl(enumName, cases)
     }
 
     private fun parseDict(): Ast.DictDecl {
@@ -425,6 +450,7 @@ class Parser(
     private fun parsePrimaryExpression(): Ast.Expr {
         return when (peek().type) {
             TokenType.STRING_LIT -> Ast.StringExpr(consume().lexeme)
+            TokenType.TEXT_LIT -> Ast.TextExpr(consume().lexeme)
             TokenType.NUMBER_LIT -> Ast.NumberExpr(consume().lexeme.toDouble())
             TokenType.TRUE -> {
                 consume()
@@ -436,6 +462,16 @@ class Parser(
             }
             TokenType.IDENT -> {
                 val identifier = consume().lexeme
+                if (identifier == "gval" && match(TokenType.LPAREN)) {
+                    val nameExpr = parseExpression()
+                    if (nameExpr !is Ast.StringExpr) {
+                        error("gval name must be a string literal")
+                    }
+                    val target = if (match(TokenType.COMMA)) parseExpression() else null
+                    expect(TokenType.RPAREN, "Expected ')' after gval arguments")
+                    return Ast.GameValueExpr(nameExpr.value, target)
+                }
+
                 if (peek().type == TokenType.LT) {
                     return Ast.TypeExpr(parseTypeAfterIdentifier(identifier))
                 }
@@ -462,6 +498,11 @@ class Parser(
                 val expr = parseExpression()
                 expect(TokenType.RPAREN, "Expected ')'")
                 expr
+            }
+
+            TokenType.DOT -> {
+                consume()
+                Ast.InferredEnumCaseExpr(expect(TokenType.IDENT, "Expected enum case after '.'").lexeme)
             }
 
             else -> error("Unexpected Token ${peek()} for expression")

@@ -1,17 +1,20 @@
 package com.zbinfinn.typecheck
 
 import com.zbinfinn.ast.Ast
+import com.google.gson.JsonParser
 import com.zbinfinn.common.EntityEventAnnotation
 import com.zbinfinn.common.PlayerEventAnnotation
 import com.zbinfinn.common.parseEventAnnotation
 import com.zbinfinn.common.requiredSelectionType
 import com.zbinfinn.common.selectorType
 import com.zbinfinn.compiler.DictSymbol
+import com.zbinfinn.compiler.EnumSymbol
 import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
 import com.zbinfinn.compiler.GlobalTypeTable
 import com.zbinfinn.compiler.SingletonSymbol
 import com.zbinfinn.ir.LoweringContext
+import java.io.File
 
 class TypeChecker(
     private val globals: GlobalFunctionTable,
@@ -36,6 +39,19 @@ class TypeChecker(
         for (dict in program.dicts) {
             for (field in dict.fields) {
                 resolver.resolve(field.type, program, diags, function = null)
+            }
+        }
+
+        for (enum in program.enums) {
+            val seen = mutableSetOf<String>()
+            for (case in enum.cases) {
+                if (!seen.add(case.name)) {
+                    diags += Diagnostic(
+                        message = "Duplicate enum case '${case.name}' in enum '${enum.name}'.",
+                        module = program.module.path,
+                        function = null,
+                    )
+                }
             }
         }
 
@@ -148,7 +164,7 @@ class TypeChecker(
                     )
                     checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
                 } else {
-                    val actual = checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
+                    val actual = checkExpr(stmt.expression, program, functionName, env, diags, activeSelection, variable.type)
                     if (!variable.mutable) {
                         diags += Diagnostic(
                             message = "Cannot reassign immutable variable '${stmt.identifier}'.",
@@ -226,7 +242,7 @@ class TypeChecker(
                         }
 
                         val expected = resolver.resolve(fieldDecl.type, program, diags, functionName)
-                        val actual = checkExpr(stmt.value, program, functionName, env, diags, activeSelection)
+                        val actual = checkExpr(stmt.value, program, functionName, env, diags, activeSelection, expected)
                         if (!isAssignable(actual, expected)) {
                             diags += Diagnostic(
                                 message = "Cannot assign value of type ${render(actual)} to field '${stmt.field}' of type ${render(expected)}.",
@@ -236,7 +252,7 @@ class TypeChecker(
                         }
                     }
 
-                    Type.StringType, Type.NumberType, Type.BooleanType, is Type.ListType, is Type.DictionaryType, is Type.TypeParameter -> {
+                    Type.StringType, Type.TextType, Type.NumberType, Type.BooleanType, is Type.ListType, is Type.DictionaryType, is Type.TypeParameter, is Type.Enum -> {
                         diags += Diagnostic(
                             message = "Cannot assign field '${stmt.field}' on non-dict type ${render(recvType)}.",
                             module = program.module.path,
@@ -330,7 +346,7 @@ class TypeChecker(
             }
 
             is Ast.ReturnStmt -> {
-                val actual = checkExpr(stmt.expression, program, functionName, env, diags, activeSelection)
+                val actual = checkExpr(stmt.expression, program, functionName, env, diags, activeSelection, expectedReturnType)
                 if (expectedReturnType == null) {
                     diags += Diagnostic(
                         message = "Cannot return a value from function '$functionName' because it has no return type.",
@@ -434,6 +450,13 @@ class TypeChecker(
         diags: MutableList<Diagnostic>,
         requireReturn: Boolean,
     ): Type {
+        if ((call.name == "name" || call.name == "ordinal") && call.args.isEmpty()) {
+            val receiverType = checkExpr(call.receiver, program, functionName, env, diags, activeSelection)
+            if (receiverType is Type.Enum) {
+                return if (call.name == "name") Type.StringType else Type.NumberType
+            }
+        }
+
         val staticReceiver = call.receiver as? Ast.IdentifierExpr
         val staticType = (call.receiver as? Ast.TypeExpr)?.let { typeExpr ->
             when (val t = resolver.resolve(typeExpr.type, program, diags, functionName)) {
@@ -595,8 +618,8 @@ class TypeChecker(
 
         val pairs = args.zip(params)
         for ((argExpr, param) in pairs) {
-            val actual = checkExpr(argExpr, program, functionName, env, diags, activeSelection)
             val expected = substitute(resolver.resolve(param.type, program, diags, function = functionName, typeParameters = substitutions.keys), substitutions)
+            val actual = checkExpr(argExpr, program, functionName, env, diags, activeSelection, expected)
             if (!isAssignable(actual, expected)) {
                 diags += Diagnostic(
                     message = "Argument '${param.name}' expects ${render(expected)} but got ${render(actual)}.",
@@ -620,11 +643,34 @@ class TypeChecker(
         env: MutableMap<String, VariableInfo>,
         diags: MutableList<Diagnostic>,
         activeSelection: LoweringContext.SelectionType? = null,
+        expectedType: Type? = null,
     ): Type {
         return when (expr) {
             is Ast.StringExpr -> Type.StringType
+            is Ast.TextExpr -> Type.TextType
             is Ast.NumberExpr -> Type.NumberType
             is Ast.BoolExpr -> Type.BooleanType
+
+            is Ast.InferredEnumCaseExpr -> {
+                val expected = expectedType
+                if (expected !is Type.Enum) {
+                    diags += Diagnostic(
+                        message = "Enum shorthand '.${expr.caseName}' requires an enum context.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                    Type.Error
+                } else if (expected.decl.cases.none { it.name == expr.caseName }) {
+                    diags += Diagnostic(
+                        message = "Enum '${expected.decl.name}' has no case '${expr.caseName}'.",
+                        module = program.module.path,
+                        function = functionName,
+                    )
+                    Type.Error
+                } else {
+                    expected
+                }
+            }
 
             is Ast.IdentifierExpr -> {
                 env[expr.name]?.type ?: run {
@@ -667,6 +713,8 @@ class TypeChecker(
                 }
             }
 
+            is Ast.GameValueExpr -> checkGameValueExpr(expr, program, functionName, env, activeSelection, diags)
+
             is Ast.MemberFunctionCall -> {
                 checkMemberFunctionCall(expr, program, functionName, env, activeSelection, diags, requireReturn = true)
             }
@@ -676,6 +724,22 @@ class TypeChecker(
             }
 
             is Ast.FieldAccessExpr -> {
+                val staticEnum = (expr.receiver as? Ast.IdentifierExpr)
+                    ?.takeIf { !env.containsKey(it.name) }
+                    ?.let { typeTable.resolve(it.name, program) as? EnumSymbol }
+                if (staticEnum != null) {
+                    return if (staticEnum.decl.cases.any { it.name == expr.field }) {
+                        Type.Enum(staticEnum.qualifiedName, staticEnum.decl)
+                    } else {
+                        diags += Diagnostic(
+                            message = "Enum '${staticEnum.simpleName}' has no case '${expr.field}'.",
+                            module = program.module.path,
+                            function = functionName,
+                        )
+                        Type.Error
+                    }
+                }
+
                 val recvType = checkExpr(expr.receiver, program, functionName, env, diags, activeSelection)
                 when (recvType) {
                     Type.AnyType -> {
@@ -701,7 +765,7 @@ class TypeChecker(
                         }
                     }
 
-                    Type.StringType, Type.NumberType, Type.BooleanType, is Type.ListType, is Type.DictionaryType, is Type.TypeParameter -> {
+                    Type.StringType, Type.TextType, Type.NumberType, Type.BooleanType, is Type.ListType, is Type.DictionaryType, is Type.TypeParameter, is Type.Enum -> {
                         diags += Diagnostic(
                             message = "Cannot access field '${expr.field}' on non-dict type ${render(recvType)}.",
                             module = program.module.path,
@@ -883,6 +947,56 @@ class TypeChecker(
         return dictType
     }
 
+    private fun checkGameValueExpr(
+        expr: Ast.GameValueExpr,
+        program: Ast.Program,
+        functionName: String,
+        env: MutableMap<String, VariableInfo>,
+        activeSelection: LoweringContext.SelectionType?,
+        diags: MutableList<Diagnostic>,
+    ): Type {
+        val targetType = resolver.resolve(Ast.Type("GameValueTarget"), program, diags, functionName)
+        expr.target?.let { target ->
+            val actual = checkExpr(target, program, functionName, env, diags, activeSelection, targetType)
+            if (!isAssignable(actual, targetType)) {
+                diags += Diagnostic(
+                    message = "gval target expects ${render(targetType)} but got ${render(actual)}.",
+                    module = program.module.path,
+                    function = functionName,
+                )
+            }
+        }
+
+        val returnType = gameValueReturnTypes[expr.name]
+        if (returnType == null) {
+            diags += Diagnostic(
+                message = "Unknown game value '${expr.name}'.",
+                module = program.module.path,
+                function = functionName,
+            )
+            return Type.Error
+        }
+        return returnType
+    }
+
+    private val gameValueReturnTypes: Map<String, Type> by lazy {
+        val file = File("src/main/resources/action_dump.json")
+        if (!file.exists()) return@lazy emptyMap()
+        val root = JsonParser.parseString(file.readText()).asJsonObject
+        root["gameValues"].asJsonArray.associate { element ->
+            val icon = element.asJsonObject["icon"].asJsonObject
+            val name = icon["name"].asString
+            val type = when (icon["returnType"]?.asString) {
+                "NUMBER" -> Type.NumberType
+                "TEXT" -> Type.StringType
+                "COMPONENT" -> Type.TextType
+                "LIST" -> Type.ListType(Type.AnyType)
+                else -> Type.AnyType
+            }
+            name to type
+        }
+    }
+
     private fun resolveFunction(
         name: String,
         program: Ast.Program,
@@ -924,6 +1038,7 @@ class TypeChecker(
     private fun render(t: Type): String {
         return when (t) {
             Type.StringType -> "String"
+            Type.TextType -> "Text"
             Type.NumberType -> "Number"
             Type.BooleanType -> "Boolean"
             Type.AnyType -> "Any"
@@ -932,6 +1047,7 @@ class TypeChecker(
             is Type.DictionaryType -> "Dictionary<${render(t.value)}>"
             is Type.TypeParameter -> t.name
             is Type.Dict -> t.qualifiedName
+            is Type.Enum -> t.qualifiedName
             is Type.Singleton -> t.qualifiedName
         }
     }

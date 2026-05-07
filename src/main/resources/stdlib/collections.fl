@@ -1,6 +1,7 @@
 mod std.collections;
 
 impl List<T> {
+    internal fn new(): List<T>;
     internal fn add(var this, value: T);
     internal fn get(val this, index: Number): T;
     internal fn set(var this, index: Number, value: T);

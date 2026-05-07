@@ -201,6 +201,7 @@ class TemplateNbtGenerator(
             "s" -> "txt"
             "t" -> "comp"
             "n" -> "num"
+            "gv", "gvT" -> "g_val"
             "p", "pm" -> "pn_el"
             else -> error("Unknown type $type")
         })
@@ -217,6 +218,16 @@ class TemplateNbtGenerator(
                 data.addProperty("type", "var")
                 data.addProperty("plural", false)
                 data.addProperty("optional", false)
+            }
+            "gv" -> data.addProperty("type", "none")
+            "gvT" -> {
+                val parts = content.split("|", limit = 2)
+                data.addProperty("target", parts.getOrElse(1) { "" })
+                data.addProperty("name", parts[0])
+                json.add("data", data)
+                fullJson.add("item", json)
+                fullJson.addProperty("slot", slot)
+                return fullJson
             }
         }
         data.addProperty("name", content)

@@ -4,6 +4,7 @@ import com.zbinfinn.ast.Ast
 
 sealed interface Type {
     data object StringType : Type
+    data object TextType : Type
     data object NumberType : Type
     data object BooleanType : Type
     data object AnyType : Type
@@ -28,6 +29,11 @@ sealed interface Type {
     data class Singleton(
         val qualifiedName: kotlin.String,
         val decl: Ast.SingletonDecl,
+    ) : Type
+
+    data class Enum(
+        val qualifiedName: kotlin.String,
+        val decl: Ast.EnumDecl,
     ) : Type
 
     /**

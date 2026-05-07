@@ -13,6 +13,7 @@ import com.zbinfinn.compiler.FunctionResolver
 import com.zbinfinn.compiler.GlobalFunctionTable
 import com.zbinfinn.compiler.GlobalTypeTable
 import com.zbinfinn.compiler.DictSymbol
+import com.zbinfinn.compiler.EnumSymbol
 import com.zbinfinn.compiler.SingletonSymbol
 import com.zbinfinn.stdlib.ImportContext
 import com.zbinfinn.stdlib.InternalStdlib
@@ -212,7 +213,8 @@ class IrLowerer(
 
             is Ast.VariableAssignment -> {
                 symbols.assign(stmt.identifier)
-                val value = lowerExpr(stmt.expression, symbols, out, context)
+                val expectedType = symbols.resolve(stmt.identifier).typeQualifiedName?.let { qualifiedNameToAstType(it) }
+                val value = lowerExpr(stmt.expression, symbols, out, context, expectedType)
                 if (value !is Ir.SingletonValue) {
                     out += Ir.SetVariableAction(
                         actionName = "=",
@@ -293,7 +295,7 @@ class IrLowerer(
                     out += SetVars.setDictValue(
                         stmt.receiver.name,
                         stmt.field,
-                        lowerExpr(stmt.value, symbols, out, context)
+                            lowerExpr(stmt.value, symbols, out, context)
                     )
                 } else {
                     error("Only simple dict field assignment supported for now")
@@ -624,7 +626,8 @@ class IrLowerer(
             emptyList()
         }
         val runtimeArgs = stmt.args
-            .map { lowerExpr(it, symbols, out, context) }
+            .zip(functionSymbol.decl.parameters)
+            .map { (arg, param) -> lowerExpr(arg, symbols, out, context, param.type) }
             .filterNot { it is Ir.SingletonValue }
         out += Ir.CallFunction(
             functionSymbol.qualifiedName,
@@ -656,7 +659,8 @@ class IrLowerer(
         }
 
         val receiverArgs = resolution.receiver?.let { listOf(lowerExpr(it, symbols, out, context)) } ?: emptyList()
-        val args = receiverArgs + call.args.map { lowerExpr(it, symbols, out, context) } + listOfNotNull(returnTemp)
+        val params = if (resolution.symbol.isStaticMember) resolution.symbol.decl.parameters else resolution.symbol.decl.parameters.drop(1)
+        val args = receiverArgs + call.args.zip(params).map { (arg, param) -> lowerExpr(arg, symbols, out, context, param.type) } + listOfNotNull(returnTemp)
         val internalBody = InternalStdlib.memberBody(resolution.symbol.qualifiedName, args)
         if (internalBody != null) {
             out += internalBody
@@ -725,10 +729,12 @@ class IrLowerer(
         expr: Ast.Expr,
         symbols: SymbolTable,
         out: MutableList<Ir.Instr>,
-        context: LoweringContext
+        context: LoweringContext,
+        expectedType: Ast.Type? = null,
     ): Ir.Value {
         return when (expr) {
             is Ast.StringExpr -> Ir.StringValue(expr.value)
+            is Ast.TextExpr -> Ir.StyledText(expr.value)
             is Ast.NumberExpr -> Ir.NumberValue(expr.value)
             is Ast.BoolExpr -> lowerBoolExprToValue(expr, symbols, out, context)
             is Ast.UnaryExpr -> when (expr.op) {
@@ -759,6 +765,14 @@ class IrLowerer(
                 }
             }
 
+            is Ast.InferredEnumCaseExpr -> {
+                val enum = expectedType?.let { resolveEnum(it) }
+                    ?: error("Enum shorthand '.${expr.caseName}' has no enum context")
+                val case = enum.decl.cases.firstOrNull { it.name == expr.caseName }
+                    ?: error("Enum '${enum.simpleName}' has no case '${expr.caseName}'")
+                Ir.StringValue(case.runtimeValue())
+            }
+
             is Ast.DictLiteralExpr -> {
                 val dictTemp = context.newTempVariableName()
                 val keysTemp = context.newTempVariableName()
@@ -780,6 +794,14 @@ class IrLowerer(
             }
 
             is Ast.FieldAccessExpr -> {
+                val staticEnum = (expr.receiver as? Ast.IdentifierExpr)
+                    ?.let { requireTypeTable().resolve(it.name, astProgram) as? EnumSymbol }
+                if (staticEnum != null) {
+                    val case = staticEnum.decl.cases.firstOrNull { it.name == expr.field }
+                        ?: error("Enum '${staticEnum.simpleName}' has no case '${expr.field}'")
+                    return Ir.StringValue(case.runtimeValue())
+                }
+
                 if (expr.receiver is Ast.IdentifierExpr) {
 
                     val dictVar = expr.receiver.name
@@ -793,11 +815,25 @@ class IrLowerer(
             }
 
             is Ast.MemberFunctionCall -> {
+                if (expr.name == "name") {
+                    val enum = expressionEnumSymbol(expr, symbols)
+                    if (enum != null) {
+                        return lowerEnumName(expr.receiver, enum, symbols, out, context)
+                    }
+                }
+                if (expr.name == "ordinal") {
+                    val enum = expressionEnumSymbol(expr, symbols)
+                    if (enum != null) {
+                        return lowerEnumOrdinal(expr.receiver, enum, symbols, out, context)
+                    }
+                }
                 lowerMemberFunctionCall(expr, out, symbols, context, requireReturn = true)
                     ?: error("Member function '${expr.name}' does not return a value")
             }
 
             is Ast.TypeExpr -> error("Type '${expr.type.identifier}' has no runtime value")
+
+            is Ast.GameValueExpr -> Ir.GameValue(expr.name, expr.target?.let { enumTargetName(it, symbols, out, context) })
 
             is Ast.FunctionCallExpr -> {
                 val functionSymbol = functionResolver.resolve(
@@ -816,7 +852,8 @@ class IrLowerer(
 
                 val temp = context.newTempVariableName()
                 val runtimeArgs = expr.args
-                    .map { lowerExpr(it, symbols, out, context) }
+                    .zip(functionSymbol.decl.parameters)
+                    .map { (arg, param) -> lowerExpr(arg, symbols, out, context, param.type) }
                     .filterNot { it is Ir.SingletonValue }
                 out += Ir.CallFunction(
                     functionSymbol.qualifiedName,
@@ -827,12 +864,95 @@ class IrLowerer(
         }
     }
 
+    private fun enumTargetName(
+        expr: Ast.Expr,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext,
+    ): String {
+        val value = lowerExpr(expr, symbols, out, context, Ast.Type("GameValueTarget"))
+        return (value as? Ir.StringValue)?.value
+            ?: error("gval target must be a compile-time enum case")
+    }
+
+    private fun lowerEnumName(
+        receiver: Ast.Expr,
+        enum: EnumSymbol,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext,
+    ): Ir.Value {
+        if (receiver is Ast.FieldAccessExpr && receiver.receiver is Ast.IdentifierExpr) {
+            val case = enum.decl.cases.firstOrNull { it.name == receiver.field }
+            if (case != null) return Ir.StringValue(case.name)
+        }
+
+        val enumValue = lowerExpr(receiver, symbols, out, context, Ast.Type(enum.simpleName))
+        val temp = Ir.Variable(context.newTempVariableName())
+        out += Ir.SetVariableAction("=", listOf(temp, Ir.StringValue("<invalid>")), emptyList())
+        for (case in enum.decl.cases) {
+            out += Ir.IfVarAction("=", listOf(enumValue, Ir.StringValue(case.runtimeValue())))
+            out += Ir.OpenBracket
+            out += Ir.SetVariableAction("=", listOf(temp, Ir.StringValue(case.name)), emptyList())
+            out += Ir.CloseBracket
+        }
+        return temp
+    }
+
+    private fun lowerEnumOrdinal(
+        receiver: Ast.Expr,
+        enum: EnumSymbol,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext,
+    ): Ir.Value {
+        if (receiver is Ast.FieldAccessExpr && receiver.receiver is Ast.IdentifierExpr) {
+            val ordinal = enum.decl.cases.indexOfFirst { it.name == receiver.field }
+            if (ordinal >= 0) return Ir.NumberValue(ordinal)
+        }
+
+        val enumValue = lowerExpr(receiver, symbols, out, context, Ast.Type(enum.simpleName))
+        val temp = Ir.Variable(context.newTempVariableName())
+        out += Ir.SetVariableAction("=", listOf(temp, Ir.NumberValue(-1)), emptyList())
+        for ((ordinal, case) in enum.decl.cases.withIndex()) {
+            out += Ir.IfVarAction("=", listOf(enumValue, Ir.StringValue(case.runtimeValue())))
+            out += Ir.OpenBracket
+            out += Ir.SetVariableAction("=", listOf(temp, Ir.NumberValue(ordinal)), emptyList())
+            out += Ir.CloseBracket
+        }
+        return temp
+    }
+
+    private fun expressionEnumSymbol(expr: Ast.Expr, symbols: SymbolTable): EnumSymbol? {
+        return when (expr) {
+            is Ast.MemberFunctionCall -> expressionEnumSymbol(expr.receiver, symbols)
+            is Ast.IdentifierExpr -> runCatching { symbols.resolve(expr.name).typeQualifiedName }.getOrNull()
+                ?.let { requireTypeTable().resolveQualified(it) as? EnumSymbol }
+            is Ast.FieldAccessExpr -> (expr.receiver as? Ast.IdentifierExpr)
+                ?.let { requireTypeTable().resolve(it.name, astProgram) as? EnumSymbol }
+            else -> null
+        }
+    }
+
+    private fun resolveEnum(type: Ast.Type): EnumSymbol? {
+        return requireTypeTable().resolve(type.identifier, astProgram) as? EnumSymbol
+    }
+
+    private fun qualifiedNameToAstType(qualifiedName: String): Ast.Type? {
+        val symbol = requireTypeTable().resolveQualified(qualifiedName)
+        return symbol?.simpleName?.let { Ast.Type(it) }
+    }
+
     private fun expressionTypeQualifiedName(expr: Ast.Expr, symbols: SymbolTable): String? {
         return when (expr) {
             is Ast.IdentifierExpr -> runCatching { symbols.resolve(expr.name).typeQualifiedName }.getOrNull()
                 ?: (requireTypeTable().resolve(expr.name, astProgram) as? SingletonSymbol)?.qualifiedName
             is Ast.DictLiteralExpr -> (requireTypeTable().resolve(expr.typeName, astProgram) as? DictSymbol)?.qualifiedName
             is Ast.FieldAccessExpr -> {
+                val staticEnum = (expr.receiver as? Ast.IdentifierExpr)
+                    ?.let { requireTypeTable().resolve(it.name, astProgram) as? EnumSymbol }
+                if (staticEnum != null) return staticEnum.qualifiedName
+
                 val receiverTypeName = expressionTypeQualifiedName(expr.receiver, symbols) ?: return null
                 val receiverDecl = (requireTypeTable().resolveQualified(receiverTypeName) as? DictSymbol)?.decl ?: return null
                 val field = receiverDecl.fields.firstOrNull { it.name == expr.field } ?: return null
@@ -847,16 +967,20 @@ class IrLowerer(
                 symbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
             }
             is Ast.MemberFunctionCall -> {
+                if ((expr.name == "name" || expr.name == "ordinal") && expressionEnumSymbol(expr, symbols) != null) {
+                    return null
+                }
                 val symbol = resolveMemberCall(expr, symbols).symbol
                 symbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
             }
             is Ast.TypeExpr -> resolveTypeQualifiedName(expr.type)
+            is Ast.GameValueExpr -> null
             else -> null
         }
     }
 
     private fun resolveTypeQualifiedName(type: Ast.Type): String? {
-        if (type.identifier in setOf("String", "Number", "Boolean", "boolean", "Any")) {
+        if (type.identifier in setOf("String", "Text", "Number", "Boolean", "boolean", "Any")) {
             return null
         }
         if (type.identifier == "List") {
@@ -925,3 +1049,5 @@ private fun Ast.BinaryExpr.arithmeticActionName(): String {
         else -> error("Unexpected arithmetic operator $op")
     }
 }
+
+private fun Ast.EnumDecl.EnumCase.runtimeValue(): String = value ?: name

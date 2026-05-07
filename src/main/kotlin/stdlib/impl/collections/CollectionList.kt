@@ -16,6 +16,13 @@ object CollectionList : InternalStdlibProvider {
         builder.member(OWNER, "size", ::size)
     }
 
+    private fun new(args: List<Ir.Value>): List<Ir.Instr> {
+        val (ret) = args;
+        return listOf(
+            SetVars.createList((ret as Ir.Variable).name, emptyList())
+        )
+    }
+
     private fun add(args: List<Ir.Value>): List<Ir.Instr> {
         val (self, value) = args
         return listOf(SetVars.appendValue(self, value))

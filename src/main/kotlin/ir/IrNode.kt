@@ -111,6 +111,7 @@ object Ir {
     data class NumberValue(val value: Number) : Value
     data class Variable(val name: String, val scope: VariableScope = VariableScope.LINE) : Value
     data class SingletonValue(val qualifiedName: String) : Value
+    data class GameValue(val name: String, val target: String?) : Value
 
     enum class Target {
         Selection,

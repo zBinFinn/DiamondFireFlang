@@ -3,6 +3,7 @@ package com.zbinfinn.tokenizer
 enum class TokenType {
     IDENT,
     STRING_LIT,
+    TEXT_LIT,
     NUMBER_LIT,
 
     FN,
@@ -11,6 +12,7 @@ enum class TokenType {
     VAR,
     MOD,
     DICT,
+    ENUM,
     SINGLETON,
     IMPL,
     WITH,

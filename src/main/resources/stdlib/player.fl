@@ -4,4 +4,4 @@ mod std.player;
 internal fn sendMessage(text: Any);
 
 @OnPlayerSelection
-internal fn showActionBar(text: String);
+internal fn showActionBar(text: Text);

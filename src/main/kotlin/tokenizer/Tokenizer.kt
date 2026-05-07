@@ -30,6 +30,7 @@ class Tokenizer(
         "var" to TokenType.VAR,
         "mod" to TokenType.MOD,
         "dict" to TokenType.DICT,
+        "enum" to TokenType.ENUM,
         "singleton" to TokenType.SINGLETON,
         "impl" to TokenType.IMPL,
         "with" to TokenType.WITH,
@@ -90,6 +91,12 @@ class Tokenizer(
             return
         }
 
+        if (peeked == 's' && canPeek(ahead = 1) && peek(ahead = 1) == '"') {
+            consume()
+            addToken(TokenType.TEXT_LIT, consumeStringLiteral())
+            return
+        }
+
         if (oneCharTokens.contains(peeked)) {
             addTokenConsumeOne(oneCharTokens[peeked]!!, peeked.toString())
             return;
@@ -97,25 +104,7 @@ class Tokenizer(
         when (peeked) {
             ' ', '\n', '\r' -> consume()
             '"' -> {
-                val buffer = StringBuffer()
-                consume() // Consume leading "
-                while (canPeek()) {
-                    if (peek() == '"') {
-                        break
-                    }
-
-                    if (peek() == '\\' && canPeek(ahead = 1) && peek(ahead = 1) == '"') {
-                        consumeMultiple(2)
-                        buffer.append('"')
-                        println(peek())
-                        continue
-                    }
-
-                    buffer.append(consume())
-                }
-                consume() // Consume trailing "
-
-                addToken(TokenType.STRING_LIT, buffer.toString())
+                addToken(TokenType.STRING_LIT, consumeStringLiteral())
             }
 
             else -> {
@@ -180,5 +169,25 @@ class Tokenizer(
 
     private fun consumeMultiple(amount: Int) {
         index += amount
+    }
+
+    private fun consumeStringLiteral(): String {
+        val buffer = StringBuffer()
+        consume() // Consume leading "
+        while (canPeek()) {
+            if (peek() == '"') {
+                break
+            }
+
+            if (peek() == '\\' && canPeek(ahead = 1) && peek(ahead = 1) == '"') {
+                consumeMultiple(2)
+                buffer.append('"')
+                continue
+            }
+
+            buffer.append(consume())
+        }
+        consume() // Consume trailing "
+        return buffer.toString()
     }
 }

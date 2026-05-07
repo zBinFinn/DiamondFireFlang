@@ -9,6 +9,7 @@ object Ast {
         val module: ModuleDecl,
         val imports: List<Import>,
         val dicts: List<DictDecl>,
+        val enums: List<EnumDecl>,
         val singletons: List<SingletonDecl>,
         val impls: List<ImplDecl>,
         val functions: List<FunctionDecl>
@@ -22,6 +23,16 @@ object Ast {
         val name: String,
         val fields: List<Field>
     ) : AstNode
+
+    data class EnumDecl(
+        val name: String,
+        val cases: List<EnumCase>
+    ) : AstNode {
+        data class EnumCase(
+            val name: String,
+            val value: String?
+        )
+    }
 
     data class SingletonDecl(
         val name: String,
@@ -141,12 +152,20 @@ object Ast {
         val value: String
     ) : Expr
 
+    data class TextExpr(
+        val value: String
+    ) : Expr
+
     data class NumberExpr(
         val value: Number
     ) : Expr
 
     data class IdentifierExpr(
         val name: String,
+    ) : Expr
+
+    data class InferredEnumCaseExpr(
+        val caseName: String,
     ) : Expr
 
     data class TypeExpr(
@@ -190,5 +209,10 @@ object Ast {
     data class FunctionCallExpr(
         val name: String,
         val args: List<Expr>,
+    ) : Expr
+
+    data class GameValueExpr(
+        val name: String,
+        val target: Expr?,
     ) : Expr
 }

@@ -2,6 +2,7 @@ package com.zbinfinn.typecheck
 
 import com.zbinfinn.ast.Ast
 import com.zbinfinn.compiler.DictSymbol
+import com.zbinfinn.compiler.EnumSymbol
 import com.zbinfinn.compiler.GlobalTypeTable
 import com.zbinfinn.compiler.SingletonSymbol
 
@@ -21,6 +22,7 @@ class TypeResolver(
         }
         return when (id) {
             "String" -> expectNoTypeArgs(type, program, diags, function) ?: Type.StringType
+            "Text" -> expectNoTypeArgs(type, program, diags, function) ?: Type.TextType
             "Number" -> expectNoTypeArgs(type, program, diags, function) ?: Type.NumberType
             "Boolean", "boolean" -> expectNoTypeArgs(type, program, diags, function) ?: Type.BooleanType
             "Any" -> expectNoTypeArgs(type, program, diags, function) ?: Type.AnyType
@@ -68,6 +70,7 @@ class TypeResolver(
                 } else {
                     when (symbol) {
                         is DictSymbol -> Type.Dict(symbol.qualifiedName, symbol.decl)
+                        is EnumSymbol -> Type.Enum(symbol.qualifiedName, symbol.decl)
                         is SingletonSymbol -> Type.Singleton(symbol.qualifiedName, symbol.decl)
                     }
                 }
