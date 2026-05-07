@@ -5,8 +5,7 @@ import com.zbinfinn.ir.Ir
 import com.zbinfinn.stdlib.impl.collections.CollectionDictionary
 import com.zbinfinn.stdlib.impl.collections.CollectionList
 import com.zbinfinn.stdlib.impl.events.PlayerJoinEvent
-import com.zbinfinn.stdlib.impl.player.SendMessage
-import com.zbinfinn.stdlib.impl.player.ShowActionBarText
+import com.zbinfinn.stdlib.impl.player.Player
 import com.zbinfinn.stdlib.impl.selection.SelectDefaultPlayer
 
 interface InternalStdlibProvider {
@@ -16,8 +15,7 @@ interface InternalStdlibProvider {
 object InternalStdlib {
     private val registry = InternalStdlibRegistry.build(
         listOf(
-            SendMessage,
-            ShowActionBarText,
+            Player,
             SelectDefaultPlayer,
             PlayerJoinEvent,
             CollectionDictionary,
@@ -89,7 +87,24 @@ class InternalStdlibRegistry private constructor(
             name: String,
             body: (List<Ir.Value>) -> List<Ir.Instr>,
         ) {
-            register(memberBodies, "$ownerType.$name", body)
+            member(ownerType, name, FunctionKind.Plain, body)
+        }
+
+        fun member(
+            ownerType: String,
+            name: String,
+            kind: FunctionKind,
+            body: (List<Ir.Value>) -> List<Ir.Instr>,
+        ) {
+            register(memberBodies, qualifiedFunctionName(ownerType, name, kind), body)
+        }
+
+        fun onPlayerSelectionMember(
+            ownerType: String,
+            name: String,
+            body: (List<Ir.Value>) -> List<Ir.Instr>,
+        ) {
+            member(ownerType, name, FunctionKind.OnPlayerSelection, body)
         }
 
         fun build(): InternalStdlibRegistry =

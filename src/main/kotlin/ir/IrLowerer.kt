@@ -75,9 +75,34 @@ class IrLowerer(
             functions += lowerFunction(fn.decl, fn.modulePath, context)
         }
 
+        for (stdProgram in StdlibAst.programs) {
+            for (singleton in stdProgram.singletons) {
+                val import = "${stdProgram.module.path}.${singleton.name}"
+                if (!importContext.isImported(import)) {
+                    continue
+                }
+
+                val typeQualifiedName = import
+                for (function in singleton.functions.filterNot { it.internal }) {
+                    val symbol = globals.resolveMember(typeQualifiedName, function.name)
+                        ?: error("Registered member function '$typeQualifiedName.${function.name}' not found")
+                    functions += lowerFunction(function, stdProgram.module.path, context, symbol)
+                }
+            }
+        }
+
         for (impl in astProgram.impls) {
             val typeQualifiedName = memberOwnerQualifiedName(astProgram.module.path, impl.type)
             for (function in impl.functions) {
+                val symbol = globals.resolveMember(typeQualifiedName, function.name)
+                    ?: error("Registered member function '$typeQualifiedName.${function.name}' not found")
+                functions += lowerFunction(function, astProgram.module.path, context, symbol)
+            }
+        }
+
+        for (singleton in astProgram.singletons) {
+            val typeQualifiedName = "${astProgram.module.path}.${singleton.name}"
+            for (function in singleton.functions) {
                 val symbol = globals.resolveMember(typeQualifiedName, function.name)
                     ?: error("Registered member function '$typeQualifiedName.${function.name}' not found")
                 functions += lowerFunction(function, astProgram.module.path, context, symbol)

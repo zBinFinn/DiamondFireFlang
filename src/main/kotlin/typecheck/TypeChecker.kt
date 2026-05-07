@@ -7,6 +7,7 @@ import com.zbinfinn.common.PlayerEventAnnotation
 import com.zbinfinn.common.parseEventAnnotation
 import com.zbinfinn.common.requiredSelectionType
 import com.zbinfinn.common.selectorType
+import com.zbinfinn.common.FunctionKind
 import com.zbinfinn.compiler.DictSymbol
 import com.zbinfinn.compiler.EnumSymbol
 import com.zbinfinn.compiler.FunctionResolver
@@ -534,6 +535,8 @@ class TypeChecker(
             return Type.Error
         }
 
+        validateSelectionContext(call.name, symbol.kind, activeSelection, program, functionName, diags)
+
         val params = if (symbol.isStaticMember) {
             symbol.decl.parameters
         } else {
@@ -595,6 +598,28 @@ class TypeChecker(
         checkArguments(call.name, call.args, symbol.decl.parameters, program, functionName, env, activeSelection, diags)
 
         return symbol
+    }
+
+    private fun validateSelectionContext(
+        callName: String,
+        kind: FunctionKind,
+        activeSelection: LoweringContext.SelectionType?,
+        program: Ast.Program,
+        functionName: String,
+        diags: MutableList<Diagnostic>,
+    ) {
+        val expected = when (kind) {
+            FunctionKind.OnPlayerSelection -> LoweringContext.SelectionType.Player
+            FunctionKind.OnEntitySelection -> LoweringContext.SelectionType.Entity
+            else -> return
+        }
+        if (activeSelection != expected) {
+            diags += Diagnostic(
+                message = "Function '$callName' requires ${expected.name.lowercase()} selection context.",
+                module = program.module.path,
+                function = functionName,
+            )
+        }
     }
 
     private fun checkArguments(

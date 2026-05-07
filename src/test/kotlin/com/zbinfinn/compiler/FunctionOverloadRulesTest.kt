@@ -59,6 +59,23 @@ class FunctionOverloadRulesTest {
     }
 
     @Test
+    fun `singleton member functions may use function role annotations`() {
+        val program = parse(
+            """
+            mod main;
+            singleton Player {
+                @OnPlayerSelection
+                fn getName(): Text {
+                    return gval("Name", .SELECTION);
+                }
+            }
+            """.trimIndent()
+        )
+
+        GlobalFunctionTable().register(program)
+    }
+
+    @Test
     fun `selection overloads emit unique DiamondFire names and calls`() {
         val program = parse(
             """

@@ -1,8 +1,12 @@
 mod main;
 
+import std.player.selection.defaultPlayer;
 import std.events.PlayerJoinEvent;
+import std.player.Player;
 
 @Event(PlayerJoinEvent)
 fn join(var event: PlayerJoinEvent) {
-    val test = 1 + 2 * 3 / 4 ^ 5;
+    with defaultPlayer() {
+        Player.sendMessage(Player.getName());
+    }
 }

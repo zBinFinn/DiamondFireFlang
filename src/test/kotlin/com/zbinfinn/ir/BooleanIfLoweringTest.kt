@@ -18,7 +18,7 @@ class BooleanIfLoweringTest {
         val main = """
             mod main;
             
-            import std.player.sendMessage;
+            import std.player.Player;
             import std.player.selection.defaultPlayer;
             import std.events.PlayerJoinEvent;
             
@@ -30,21 +30,21 @@ class BooleanIfLoweringTest {
                 val test = true;
                 val test2 = false;
                 with defaultPlayer() {
-                    sendMessage("Test 1");
+                    Player.sendMessage("Test 1");
                 }
                 if (test && test2) {
                     with defaultPlayer() {
-                        sendMessage("test && test2");
+                        Player.sendMessage("test && test2");
                     }
                 }
                 if (test || test2) {
                     with defaultPlayer() {
-                        sendMessage("test || test2");
+                        Player.sendMessage("test || test2");
                     }
                 }
                 if (true) {
                     with defaultPlayer() {
-                        sendMessage("true");
+                        Player.sendMessage("true");
                     }
                 }
             }
@@ -53,14 +53,14 @@ class BooleanIfLoweringTest {
         val funny = """
             mod funny;
             
-            import std.player.sendMessage;
+            import std.player.Player;
             
             dict FunnyNess { val level: Number, val message: String }
             
             @OnPlayerSelection
             fn sendFunny(val funny: FunnyNess) {
-                sendMessage(funny.level);
-                sendMessage(funny.message);
+                Player.sendMessage(funny.level);
+                Player.sendMessage(funny.message);
             }
         """.trimIndent()
 

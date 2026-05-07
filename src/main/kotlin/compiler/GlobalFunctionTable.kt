@@ -145,16 +145,14 @@ class GlobalFunctionTable {
             if (memberMap.containsKey(fn.name)) {
                 error("Duplicate member function '${fn.name}' for '$typeQualifiedName'")
             }
-            if (functionKind(fn) != FunctionKind.Plain) {
-                error("Singleton member function '${fn.name}' may not use function role annotations")
-            }
+            val kind = functionKind(fn)
 
-            val qualifiedName = "$typeQualifiedName.${fn.name}"
+            val qualifiedName = diamondFireName(typeQualifiedName, fn.name, kind)
             val symbol = FunctionSymbol(
                 qualifiedName = qualifiedName,
                 simpleName = fn.name,
                 modulePath = modulePath,
-                kind = FunctionKind.Plain,
+                kind = kind,
                 decl = fn,
                 program = program,
                 memberOf = typeQualifiedName,

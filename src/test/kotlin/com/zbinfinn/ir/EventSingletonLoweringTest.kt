@@ -75,6 +75,29 @@ class EventSingletonLoweringTest {
         assertFalse(emitted.contains("fn \"main.helper\" args("))
     }
 
+    @Test
+    fun `stdlib player singleton selection member lowers with role suffix`() {
+        val emitted = compile(
+            """
+            mod main;
+            import std.events.PlayerJoinEvent;
+            import std.player.Player;
+            import std.player.selection.defaultPlayer;
+
+            @Event(PlayerJoinEvent)
+            fn join(var event: PlayerJoinEvent) {
+                with defaultPlayer() {
+                    val name = Player.getName();
+                }
+            }
+            """.trimIndent()
+        )
+
+        assertTrue(emitted.contains("fn \"std.player.Player.getName\$onPlayerSelection\""))
+        assertTrue(emitted.contains("cf \"std.player.Player.getName\$onPlayerSelection\""))
+        assertTrue(emitted.contains("gvT\"Name|Selection\""))
+    }
+
     private fun compile(source: String): String {
         val program = Parser(Tokenizer(source).tokenize()).parseProgram()
         val globals = GlobalFunctionTable()

@@ -40,14 +40,14 @@ class TypeCheckerTest {
         val diags = runTypeCheck(
             """
             mod main;
-            import std.player.sendMessage;
+            import std.player.Player;
             import std.player.selection.defaultPlayer;
             import std.events.PlayerJoinEvent;
 
             @Event(PlayerJoinEvent)
             fn join(var event: PlayerJoinEvent) {
                 with defaultPlayer() {
-                    sendMessage(5);
+                    Player.sendMessage(5);
                 }
             }
             """.trimIndent()
