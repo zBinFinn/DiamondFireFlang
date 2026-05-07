@@ -14,6 +14,8 @@ data class FunctionSymbol(
     val program: Ast.Program?,
     val memberOf: String? = null,
     val isStaticMember: Boolean = false,
+    val typeParameters: Set<String> = emptySet(),
+    val memberReceiverType: Ast.Type? = null,
 )
 
 class GlobalFunctionTable {
@@ -95,7 +97,10 @@ class GlobalFunctionTable {
         byQualified.values.flatten().plus(byMember.values.flatMap { it.values }).toSet()
 
     private fun registerImpl(modulePath: String, impl: Ast.ImplDecl, program: Ast.Program) {
-        val typeQualifiedName = "$modulePath.${impl.typeName}"
+        val typeQualifiedName = memberOwnerQualifiedName(modulePath, impl.type)
+        val typeParameters = impl.type.args
+            .mapNotNull { it.identifier.takeIf { _ -> it.args.isEmpty() } }
+            .toSet()
         val memberMap = byMember.getOrPut(typeQualifiedName) { mutableMapOf() }
 
         for (fn in impl.functions) {
@@ -115,10 +120,20 @@ class GlobalFunctionTable {
                 decl = fn,
                 program = program,
                 memberOf = typeQualifiedName,
-                isStaticMember = fn.parameters.firstOrNull()?.name != "this"
+                isStaticMember = fn.parameters.firstOrNull()?.name != "this",
+                typeParameters = typeParameters,
+                memberReceiverType = impl.type
             )
 
             memberMap[fn.name] = symbol
+        }
+    }
+
+    private fun memberOwnerQualifiedName(modulePath: String, type: Ast.Type): String {
+        return when (type.identifier) {
+            "List" -> "std.collections.List"
+            "Dictionary" -> "std.collections.Dictionary"
+            else -> "$modulePath.${type.identifier}"
         }
     }
 

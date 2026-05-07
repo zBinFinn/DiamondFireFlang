@@ -25,6 +25,11 @@ class TypeChecker(
         val mutable: Boolean
     )
 
+    private data class StaticTypeInfo(
+        val qualifiedName: String,
+        val simpleName: String,
+    )
+
     fun check(program: Ast.Program): List<Diagnostic> {
         val diags = mutableListOf<Diagnostic>()
 
@@ -52,15 +57,15 @@ class TypeChecker(
         }
 
         for (impl in program.impls) {
-            if (typeTable.resolve(impl.typeName, program) == null) {
+            if (!isBuiltinGenericOwner(impl.type) && typeTable.resolve(impl.type.identifier, program) == null) {
                 diags += Diagnostic(
-                    message = "Unknown impl type '${impl.typeName}'.",
+                    message = "Unknown impl type '${renderAstType(impl.type)}'.",
                     module = program.module.path,
                     function = null,
                 )
             }
             for (fn in impl.functions) {
-                checkFunction(fn, program, diags, ownerType = impl.typeName)
+                checkFunction(fn, program, diags, ownerType = renderAstType(impl.type), typeParameters = typeParameterNames(impl.type))
             }
         }
 
@@ -75,18 +80,19 @@ class TypeChecker(
         fn: Ast.FunctionDecl,
         program: Ast.Program,
         diags: MutableList<Diagnostic>,
-        ownerType: String? = null
+        ownerType: String? = null,
+        typeParameters: Set<String> = emptySet(),
     ) {
         val env = mutableMapOf<String, VariableInfo>()
         val functionName = ownerType?.let { "$it.${fn.name}" } ?: fn.name
         val declaredReturnType = fn.returnType?.let {
-            resolver.resolve(it, program, diags, function = functionName)
+            resolver.resolve(it, program, diags, function = functionName, typeParameters = typeParameters)
         }
 
         validateEventFunction(fn, program, functionName, diags)
 
         for (param in fn.parameters) {
-            val t = resolver.resolve(param.type, program, diags, function = functionName)
+            val t = resolver.resolve(param.type, program, diags, function = functionName, typeParameters = typeParameters)
             env[param.name] = VariableInfo(t, param.mutable)
         }
 
@@ -230,7 +236,7 @@ class TypeChecker(
                         }
                     }
 
-                    Type.StringType, Type.NumberType, Type.BooleanType -> {
+                    Type.StringType, Type.NumberType, Type.BooleanType, is Type.ListType, is Type.DictionaryType, is Type.TypeParameter -> {
                         diags += Diagnostic(
                             message = "Cannot assign field '${stmt.field}' on non-dict type ${render(recvType)}.",
                             module = program.module.path,
@@ -429,9 +435,16 @@ class TypeChecker(
         requireReturn: Boolean,
     ): Type {
         val staticReceiver = call.receiver as? Ast.IdentifierExpr
-        val staticType = staticReceiver
+        val staticType = (call.receiver as? Ast.TypeExpr)?.let { typeExpr ->
+            when (val t = resolver.resolve(typeExpr.type, program, diags, functionName)) {
+                is Type.ListType -> StaticTypeInfo("std.collections.List", "List")
+                is Type.DictionaryType -> StaticTypeInfo("std.collections.Dictionary", "Dictionary")
+                else -> null
+            }
+        } ?: staticReceiver
             ?.takeIf { !env.containsKey(it.name) }
             ?.let { typeTable.resolve(it.name, program) }
+            ?.let { StaticTypeInfo(it.qualifiedName, it.simpleName) }
 
         val symbol = if (staticType != null) {
             resolveMember(staticType.qualifiedName, call.name, program, functionName, diags)?.also {
@@ -445,7 +458,7 @@ class TypeChecker(
             }
         } else {
             val receiverType = checkExpr(call.receiver, program, functionName, env, diags, activeSelection)
-            if (receiverType !is Type.Dict && receiverType !is Type.Singleton) {
+            if (receiverType !is Type.Dict && receiverType !is Type.Singleton && receiverType !is Type.ListType && receiverType !is Type.DictionaryType) {
                 if (receiverType != Type.Error) {
                     diags += Diagnostic(
                         message = "Cannot call member function '${call.name}' on ${render(receiverType)}.",
@@ -458,11 +471,15 @@ class TypeChecker(
                 val receiverTypeName = when (receiverType) {
                     is Type.Dict -> receiverType.qualifiedName
                     is Type.Singleton -> receiverType.qualifiedName
+                    is Type.ListType -> "std.collections.List"
+                    is Type.DictionaryType -> "std.collections.Dictionary"
                     else -> error("Unexpected receiver type $receiverType")
                 }
                 val receiverSimpleName = when (receiverType) {
                     is Type.Dict -> receiverType.decl.name
                     is Type.Singleton -> receiverType.decl.name
+                    is Type.ListType -> "List"
+                    is Type.DictionaryType -> "Dictionary"
                     else -> error("Unexpected receiver type $receiverType")
                 }
                 resolveMember(receiverTypeName, call.name, program, functionName, diags)?.also {
@@ -499,7 +516,26 @@ class TypeChecker(
         } else {
             symbol.decl.parameters.drop(1)
         }
-        checkArguments(call.name, call.args, params, program, functionName, env, activeSelection, diags)
+        val substitutions = if (symbol.isStaticMember) {
+            val typeReceiver = call.receiver as? Ast.TypeExpr
+            if (typeReceiver != null && symbol.memberReceiverType != null) {
+                bindTypeParameters(
+                    symbol.memberReceiverType,
+                    resolver.resolve(typeReceiver.type, program, diags, functionName),
+                    symbol.typeParameters
+                )
+            } else {
+                emptyMap()
+            }
+        } else {
+            symbol.decl.parameters.firstOrNull()
+                ?.let {
+                    val typeParameters = symbol.typeParameters.ifEmpty { typeParameterNames(it.type) }
+                    bindTypeParameters(it.type, receiverTypeForCall(call.receiver, program, functionName, env, diags, activeSelection), typeParameters)
+                }
+                ?: emptyMap()
+            }
+        checkArguments(call.name, call.args, params, program, functionName, env, activeSelection, diags, substitutions)
 
         val returnType = symbol.decl.returnType
         if (returnType == null) {
@@ -513,7 +549,7 @@ class TypeChecker(
             return Type.Error
         }
 
-        return resolver.resolve(returnType, program, diags, functionName)
+        return substitute(resolver.resolve(returnType, program, diags, functionName, substitutions.keys), substitutions)
     }
 
     private fun checkFunctionCall(
@@ -547,6 +583,7 @@ class TypeChecker(
         env: MutableMap<String, VariableInfo>,
         activeSelection: LoweringContext.SelectionType?,
         diags: MutableList<Diagnostic>,
+        substitutions: Map<String, Type> = emptyMap(),
     ) {
         if (args.size != params.size) {
             diags += Diagnostic(
@@ -559,7 +596,7 @@ class TypeChecker(
         val pairs = args.zip(params)
         for ((argExpr, param) in pairs) {
             val actual = checkExpr(argExpr, program, functionName, env, diags, activeSelection)
-            val expected = resolver.resolve(param.type, program, diags, function = functionName)
+            val expected = substitute(resolver.resolve(param.type, program, diags, function = functionName, typeParameters = substitutions.keys), substitutions)
             if (!isAssignable(actual, expected)) {
                 diags += Diagnostic(
                     message = "Argument '${param.name}' expects ${render(expected)} but got ${render(actual)}.",
@@ -634,6 +671,10 @@ class TypeChecker(
                 checkMemberFunctionCall(expr, program, functionName, env, activeSelection, diags, requireReturn = true)
             }
 
+            is Ast.TypeExpr -> {
+                resolver.resolve(expr.type, program, diags, functionName)
+            }
+
             is Ast.FieldAccessExpr -> {
                 val recvType = checkExpr(expr.receiver, program, functionName, env, diags, activeSelection)
                 when (recvType) {
@@ -660,7 +701,7 @@ class TypeChecker(
                         }
                     }
 
-                    Type.StringType, Type.NumberType, Type.BooleanType -> {
+                    Type.StringType, Type.NumberType, Type.BooleanType, is Type.ListType, is Type.DictionaryType, is Type.TypeParameter -> {
                         diags += Diagnostic(
                             message = "Cannot access field '${expr.field}' on non-dict type ${render(recvType)}.",
                             module = program.module.path,
@@ -887,8 +928,58 @@ class TypeChecker(
             Type.BooleanType -> "Boolean"
             Type.AnyType -> "Any"
             Type.Error -> "<error>"
+            is Type.ListType -> "List<${render(t.element)}>"
+            is Type.DictionaryType -> "Dictionary<${render(t.value)}>"
+            is Type.TypeParameter -> t.name
             is Type.Dict -> t.qualifiedName
             is Type.Singleton -> t.qualifiedName
+        }
+    }
+
+    private fun typeParameterNames(type: Ast.Type): Set<String> =
+        type.args.mapNotNull { it.identifier.takeIf { _ -> it.args.isEmpty() } }.toSet()
+
+    private fun isBuiltinGenericOwner(type: Ast.Type): Boolean =
+        type.identifier == "List" || type.identifier == "Dictionary"
+
+    private fun renderAstType(type: Ast.Type): String =
+        if (type.args.isEmpty()) type.identifier else "${type.identifier}<${type.args.joinToString(", ") { renderAstType(it) }}>"
+
+    private fun receiverTypeForCall(
+        receiver: Ast.Expr,
+        program: Ast.Program,
+        functionName: String,
+        env: MutableMap<String, VariableInfo>,
+        diags: MutableList<Diagnostic>,
+        activeSelection: LoweringContext.SelectionType?,
+    ): Type = checkExpr(receiver, program, functionName, env, diags, activeSelection)
+
+    private fun bindTypeParameters(pattern: Ast.Type, actual: Type, typeParameters: Set<String>): Map<String, Type> {
+        val out = mutableMapOf<String, Type>()
+        bindTypeParameters(pattern, actual, typeParameters, out)
+        return out
+    }
+
+    private fun bindTypeParameters(pattern: Ast.Type, actual: Type, typeParameters: Set<String>, out: MutableMap<String, Type>) {
+        if (pattern.identifier in typeParameters && pattern.args.isEmpty()) {
+            out[pattern.identifier] = actual
+            return
+        }
+
+        if (pattern.identifier == "List" && actual is Type.ListType && pattern.args.size == 1) {
+            bindTypeParameters(pattern.args.single(), actual.element, typeParameters, out)
+        }
+        if (pattern.identifier == "Dictionary" && actual is Type.DictionaryType && pattern.args.size == 1) {
+            bindTypeParameters(pattern.args.single(), actual.value, typeParameters, out)
+        }
+    }
+
+    private fun substitute(type: Type, substitutions: Map<String, Type>): Type {
+        return when (type) {
+            is Type.TypeParameter -> substitutions[type.name] ?: type
+            is Type.ListType -> Type.ListType(substitute(type.element, substitutions))
+            is Type.DictionaryType -> Type.DictionaryType(substitute(type.value, substitutions))
+            else -> type
         }
     }
 }

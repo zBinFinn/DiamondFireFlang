@@ -38,6 +38,8 @@ enum class TokenType {
     COMMA, // ,
     SEMI, // ;
     COLON, // :
+    LT, // <
+    GT, // >
     LPAREN, // (
     RPAREN, // )
     LBRACE, // {

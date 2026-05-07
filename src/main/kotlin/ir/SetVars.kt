@@ -18,12 +18,54 @@ object SetVars {
         tags = emptyList()
     )
 
+    fun appendValue(list: Value, value: Value) = SetVariableAction(
+        actionName = "AppendValue",
+        args = listOf(list, value),
+        tags = emptyList()
+    )
+
+    fun getListValue(varName: String, list: Value, index: Value) = SetVariableAction(
+        actionName = "GetListValue",
+        args = listOf(
+            Variable(varName, VariableScope.LINE),
+            list,
+            index,
+        ),
+        tags = emptyList()
+    )
+
+    fun setListValue(list: Value, index: Value, value: Value) = SetVariableAction(
+        actionName = "SetListValue",
+        args = listOf(list, index, value),
+        tags = emptyList()
+    )
+
+    fun removeListIndex(list: Value, index: Value) = SetVariableAction(
+        actionName = "RemoveListIndex",
+        args = listOf(list, index),
+        tags = emptyList()
+    )
+
+    fun getListLength(varName: String, list: Value) = SetVariableAction(
+        actionName = "GetListLength",
+        args = listOf(Variable(varName, VariableScope.LINE), list),
+        tags = emptyList()
+    )
+
     fun createDict(varName: String, keysVarName: String, valuesVarName: String) = SetVariableAction(
         actionName = "CreateDict",
         args = listOf(
             Variable(varName, VariableScope.LINE),
             Variable(keysVarName, VariableScope.LINE),
             Variable(valuesVarName, VariableScope.LINE),
+        ),
+        tags = emptyList()
+    )
+
+    fun createEmptyDict(varName: String) = SetVariableAction(
+        actionName = "CreateDict",
+        args = listOf(
+            Variable(varName, VariableScope.LINE),
         ),
         tags = emptyList()
     )
@@ -38,6 +80,16 @@ object SetVars {
         tags = emptyList()
     )
 
+    fun getDictValue(varName: String, dict: Value, key: Value) = SetVariableAction(
+        actionName = "GetDictValue",
+        args = listOf(
+            Variable(varName, VariableScope.LINE),
+            dict,
+            key
+        ),
+        tags = emptyList()
+    )
+
     fun setDictValue(dictVarName: String, key: String, value: Ir.Value) = SetVariableAction(
         actionName = "SetDictValue",
         args = listOf(
@@ -45,6 +97,28 @@ object SetVars {
             StringValue(key),
             value
         ),
+        tags = emptyList()
+    )
+
+    fun setDictValue(dict: Value, key: Value, value: Ir.Value) = SetVariableAction(
+        actionName = "SetDictValue",
+        args = listOf(
+            dict,
+            key,
+            value
+        ),
+        tags = emptyList()
+    )
+
+    fun removeDictEntry(dict: Value, key: Value) = SetVariableAction(
+        actionName = "RemoveDictEntry",
+        args = listOf(dict, key),
+        tags = emptyList()
+    )
+
+    fun getDictSize(varName: String, dict: Value) = SetVariableAction(
+        actionName = "GetDictSize",
+        args = listOf(Variable(varName, VariableScope.LINE), dict),
         tags = emptyList()
     )
 }

@@ -2,6 +2,8 @@ package com.zbinfinn.stdlib
 
 import com.zbinfinn.common.FunctionKind
 import com.zbinfinn.ir.Ir
+import com.zbinfinn.stdlib.impl.collections.CollectionDictionary
+import com.zbinfinn.stdlib.impl.collections.CollectionList
 import com.zbinfinn.stdlib.impl.events.PlayerJoinEvent
 import com.zbinfinn.stdlib.impl.player.SendMessage
 import com.zbinfinn.stdlib.impl.player.ShowActionBarText
@@ -18,6 +20,8 @@ object InternalStdlib {
             ShowActionBarText,
             SelectDefaultPlayer,
             PlayerJoinEvent,
+            CollectionDictionary,
+            CollectionList,
         )
     )
 

@@ -8,6 +8,18 @@ sealed interface Type {
     data object BooleanType : Type
     data object AnyType : Type
 
+    data class ListType(
+        val element: Type,
+    ) : Type
+
+    data class DictionaryType(
+        val value: Type,
+    ) : Type
+
+    data class TypeParameter(
+        val name: kotlin.String,
+    ) : Type
+
     data class Dict(
         val qualifiedName: kotlin.String,
         val decl: Ast.DictDecl,
@@ -27,5 +39,7 @@ sealed interface Type {
 internal fun isAssignable(from: Type, to: Type): Boolean {
     if (from == Type.Error || to == Type.Error) return true
     if (to == Type.AnyType) return true
+    if (from is Type.ListType && to is Type.ListType) return isAssignable(from.element, to.element) && isAssignable(to.element, from.element)
+    if (from is Type.DictionaryType && to is Type.DictionaryType) return isAssignable(from.value, to.value) && isAssignable(to.value, from.value)
     return from == to
 }

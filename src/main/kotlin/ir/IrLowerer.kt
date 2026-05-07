@@ -75,7 +75,7 @@ class IrLowerer(
         }
 
         for (impl in astProgram.impls) {
-            val typeQualifiedName = "${astProgram.module.path}.${impl.typeName}"
+            val typeQualifiedName = memberOwnerQualifiedName(astProgram.module.path, impl.type)
             for (function in impl.functions) {
                 val symbol = globals.resolveMember(typeQualifiedName, function.name)
                     ?: error("Registered member function '$typeQualifiedName.${function.name}' not found")
@@ -341,7 +341,7 @@ class IrLowerer(
             null -> {}
 
             is Ast.IfStmt.ElseBranch.Else -> {
-                out += Ir.ElseMarker
+                out += Ir.Else
                 out += Ir.OpenBracket
                 for (inner in elseBranch.block.statements) {
                     lowerStatement(inner, symbols, out, context)
@@ -350,7 +350,7 @@ class IrLowerer(
             }
 
             is Ast.IfStmt.ElseBranch.ElseIf -> {
-                out += Ir.ElseMarker
+                out += Ir.Else
                 out += Ir.OpenBracket
                 emitIf(elseBranch.stmt, symbols, out, context)
                 out += Ir.CloseBracket
@@ -674,6 +674,16 @@ class IrLowerer(
     )
 
     private fun resolveMemberCall(call: Ast.MemberFunctionCall, symbols: SymbolTable): MemberResolution {
+        if (call.receiver is Ast.TypeExpr) {
+            val receiverType = resolveTypeQualifiedName(call.receiver.type)
+                ?: error("Cannot resolve type receiver for member function '${call.name}'")
+            val symbol = functionResolver.resolveMember(receiverType, call.name)
+            if (!symbol.isStaticMember) {
+                error("Member function '${call.name}' requires an instance")
+            }
+            return MemberResolution(symbol, null)
+        }
+
         val staticReceiver = call.receiver as? Ast.IdentifierExpr
         val staticType = staticReceiver
             ?.takeIf { runCatching { symbols.resolve(it.name) }.getOrNull() == null }
@@ -787,6 +797,8 @@ class IrLowerer(
                     ?: error("Member function '${expr.name}' does not return a value")
             }
 
+            is Ast.TypeExpr -> error("Type '${expr.type.identifier}' has no runtime value")
+
             is Ast.FunctionCallExpr -> {
                 val functionSymbol = functionResolver.resolve(
                     expr.name,
@@ -838,6 +850,7 @@ class IrLowerer(
                 val symbol = resolveMemberCall(expr, symbols).symbol
                 symbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
             }
+            is Ast.TypeExpr -> resolveTypeQualifiedName(expr.type)
             else -> null
         }
     }
@@ -846,7 +859,21 @@ class IrLowerer(
         if (type.identifier in setOf("String", "Number", "Boolean", "boolean", "Any")) {
             return null
         }
+        if (type.identifier == "List") {
+            return "std.collections.List"
+        }
+        if (type.identifier == "Dictionary") {
+            return "std.collections.Dictionary"
+        }
         return requireTypeTable().resolve(type.identifier, astProgram)?.qualifiedName
+    }
+
+    private fun memberOwnerQualifiedName(modulePath: String, type: Ast.Type): String {
+        return when (type.identifier) {
+            "List" -> "std.collections.List"
+            "Dictionary" -> "std.collections.Dictionary"
+            else -> "$modulePath.${type.identifier}"
+        }
     }
 
     private fun isSingletonType(typeQualifiedName: String?): Boolean {

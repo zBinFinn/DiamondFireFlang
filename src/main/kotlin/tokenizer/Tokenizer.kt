@@ -9,6 +9,8 @@ class Tokenizer(
         ',' to TokenType.COMMA,
         ';' to TokenType.SEMI,
         ':' to TokenType.COLON,
+        '<' to TokenType.LT,
+        '>' to TokenType.GT,
         '(' to TokenType.LPAREN,
         ')' to TokenType.RPAREN,
         '{' to TokenType.LBRACE,

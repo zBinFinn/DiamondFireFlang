@@ -1,0 +1,18 @@
+mod std.collections;
+
+impl List<T> {
+    internal fn add(var this, value: T);
+    internal fn get(val this, index: Number): T;
+    internal fn set(var this, index: Number, value: T);
+    internal fn remove(var this, index: Number);
+    internal fn size(val this): Number;
+}
+
+impl Dictionary<V> {
+    internal fn new(): Dictionary<V>;
+    internal fn set(var this, key: String, value: V);
+    internal fn get(val this, key: String): V;
+    internal fn remove(var this, key: String);
+    internal fn has(val this, key: String): Boolean;
+    internal fn size(val this): Number;
+}

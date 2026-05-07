@@ -36,9 +36,11 @@ object Ast {
     )
 
     data class ImplDecl(
-        val typeName: String,
+        val type: Type,
         val functions: List<FunctionDecl>
-    ) : AstNode
+    ) : AstNode {
+        val typeName: String get() = type.identifier
+    }
 
     data class FunctionDecl(
         val name: String,
@@ -56,7 +58,8 @@ object Ast {
     )
 
     data class Type(
-        val identifier: String
+        val identifier: String,
+        val args: List<Type> = emptyList()
     )
 
     data class Block(
@@ -144,6 +147,10 @@ object Ast {
 
     data class IdentifierExpr(
         val name: String,
+    ) : Expr
+
+    data class TypeExpr(
+        val type: Type,
     ) : Expr
 
     data class BoolExpr(
