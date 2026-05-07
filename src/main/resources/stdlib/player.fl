@@ -9,6 +9,6 @@ singleton Player {
 
     @OnPlayerSelection
     fn getName(): Text {
-        return gval("Name", .SELECTION);
+        return gval("Name ", .SELECTION);
     }
 }
