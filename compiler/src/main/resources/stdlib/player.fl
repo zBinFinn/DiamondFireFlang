@@ -1,0 +1,15 @@
+mod std.player;
+
+singleton Player {
+    @OnPlayerSelection
+    internal fn sendMessage(text: Any);
+
+    @OnPlayerSelection
+    internal fn showActionBar(text: Text);
+
+    @OnPlayerSelection
+    fn getName(): Text {
+        // Space because "Name" is a legacy gamevalue
+        return gval("Name ", .SELECTION);
+    }
+}

@@ -1,0 +1,22 @@
+<idea-plugin>
+    <id>com.zbinfinn.diamondfire-flang</id>
+    <name>DiamondFire Flang</name>
+    <vendor>zbinfinn</vendor>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lsp</depends>
+    <depends>com.intellij.modules.ultimate</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType
+            name="DiamondFire Flang"
+            implementationClass="com.zbinfinn.intellij.FlangFileType"
+            fieldName="INSTANCE"
+            language="DiamondFireFlang"
+            extensions="fl"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="com.intellij.platform.lsp">
+        <serverSupportProvider implementation="com.zbinfinn.intellij.FlangLspServerSupportProvider"/>
+    </extensions>
+</idea-plugin>

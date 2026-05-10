@@ -14,11 +14,6 @@ fn balls(): Number {
     return 3;
 }
 
-@PlayerEvent("Join")
-fn join() {
-
-}
-
 @Event(PlayerJoinEvent)
 fn join(var event: PlayerJoinEvent) {
     event.setCancelled(true);
