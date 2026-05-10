@@ -18,6 +18,8 @@ fn balls(): Number {
 fn join(var event: PlayerJoinEvent) {
     event.setCancelled(true);
 
+    Player.showActionBar(s"Hello World");
+
     val test = true;
     val test2 = false;
     with defaultPlayer() {
