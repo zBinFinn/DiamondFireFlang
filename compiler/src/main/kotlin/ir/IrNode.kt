@@ -85,6 +85,12 @@ object Ir {
         override val tags: List<Tag>
     ) : SimpleAction("sv")
 
+    data class RepeatAction(
+        override val actionName: String,
+        override val args: List<Value>,
+        override val tags: List<Tag> = emptyList(),
+    ) : SimpleAction("rp")
+
     data class ControlAction(
         override val actionName: String,
         override val args: List<Value> = emptyList(),

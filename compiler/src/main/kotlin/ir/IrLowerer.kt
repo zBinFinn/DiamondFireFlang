@@ -4,6 +4,7 @@ import com.zbinfinn.ast.Ast
 import com.zbinfinn.common.EntityEventAnnotation
 import com.zbinfinn.common.EventAnnotation
 import com.zbinfinn.common.PlayerEventAnnotation
+import com.zbinfinn.common.VariableScope
 import com.zbinfinn.common.functionKind
 import com.zbinfinn.common.parseEventAnnotation
 import com.zbinfinn.common.requiredSelectionType
@@ -27,6 +28,7 @@ class IrLowerer(
 ) {
     private companion object {
         const val RETURN_PARAMETER_NAME = "\$return"
+        const val SELECTION_ENTRY_VAR_NAME = "\$selection_entry"
     }
 
     private val importContext = ImportContext(astProgram.imports.map { it.path })
@@ -187,6 +189,11 @@ class IrLowerer(
             body += InternalStdlib.functionBody(functionSymbol.qualifiedName, function.parameters.map { Ir.Variable(it.name) })
                 ?: error("Missing internal stdlib provider for '${functionSymbol.qualifiedName}'")
         } else {
+            if (requiredSelection != null && function.body.containsWithBlock()) {
+                val entrySelection = Ir.Variable(SELECTION_ENTRY_VAR_NAME, VariableScope.LOCAL)
+                outSnapshotSelectedUuids(body, entrySelection)
+                context.functionEntrySelection = LoweringContext.SelectionRestore(requiredSelection, entrySelection)
+            }
             for (stmt in function.body.statements) {
                 lowerStatement(stmt, symbols, body, context)
             }
@@ -194,6 +201,7 @@ class IrLowerer(
 
         if (requiredSelection != null) {
             context.selectionStack.removeLast()
+            context.functionEntrySelection = null
         }
 
         val functionSymbol = symbolOverride ?: globals.resolveInModule(modulePath, function.name, functionKind(function))
@@ -206,6 +214,22 @@ class IrLowerer(
             name = param.name,
             mutable = param.mutable,
         )
+    }
+
+    private fun Ast.Block.containsWithBlock(): Boolean =
+        statements.any { it.containsWithBlock() }
+
+    private fun Ast.Statement.containsWithBlock(): Boolean {
+        return when (this) {
+            is Ast.WithBlock -> true
+            is Ast.IfStmt -> thenBlock.containsWithBlock() ||
+                when (val branch = elseBranch) {
+                    null -> false
+                    is Ast.IfStmt.ElseBranch.Else -> branch.block.containsWithBlock()
+                    is Ast.IfStmt.ElseBranch.ElseIf -> branch.stmt.containsWithBlock()
+                }
+            else -> false
+        }
     }
 
     private fun lowerStatement(
@@ -222,7 +246,7 @@ class IrLowerer(
                 symbols.define(
                     name,
                     mutable = stmt.mutable,
-                    typeQualifiedName = expressionTypeQualifiedName(stmt.expression, symbols)
+                    typeQualifiedName = expressionTypeQualifiedName(stmt.expression, symbols, context)
                 )
                 if (value !is Ir.SingletonValue) {
                     out += Ir.SetVariableAction(
@@ -253,31 +277,7 @@ class IrLowerer(
             }
 
             is Ast.WithBlock -> {
-                val selectorCall = stmt.selectorFunction
-
-                val selectorFunction = functionResolver.resolve(
-                    selectorCall.name,
-                    astProgram,
-                    FunctionResolver.Context.Selector
-                )
-
-                val type = selectorType(selectorFunction.decl) ?: error("Unknown selector '${selectorCall.name}'")
-
-                lowerFunctionCall(
-                    stmt.selectorFunction,
-                    out,
-                    symbols,
-                    context,
-                    FunctionResolver.Context.Selector
-                )
-
-                context.selectionStack.addLast(type)
-                for (stmt in stmt.body.statements) {
-                    lowerStatement(stmt, symbols, out, context)
-                }
-                context.selectionStack.removeLast()
-
-                emitSelectionReset(out)
+                lowerWithBlock(stmt, symbols, out, context)
             }
 
             is Ast.FunctionCall -> {
@@ -731,7 +731,7 @@ class IrLowerer(
             return MemberResolution(symbol, null)
         }
 
-        val receiverType = expressionTypeQualifiedName(call.receiver, symbols)
+        val receiverType = expressionTypeQualifiedName(call.receiver, symbols, context)
             ?: error("Cannot resolve receiver type for member function '${call.name}'")
         val symbol = functionResolver.resolveMember(receiverType, call.name, resolverContext)
         if (symbol.isStaticMember) {
@@ -744,6 +744,55 @@ class IrLowerer(
         return MemberResolution(symbol, call.receiver)
     }
 
+    private fun lowerWithBlock(
+        stmt: Ast.WithBlock,
+        symbols: SymbolTable,
+        out: MutableList<Ir.Instr>,
+        context: LoweringContext
+    ) {
+        val selectorCall = stmt.selectorFunction
+        val selectorFunction = functionResolver.resolve(
+            selectorCall.name,
+            astProgram,
+            FunctionResolver.Context.Selector
+        )
+        val type = selectorType(selectorFunction.decl) ?: error("Unknown selector '${selectorCall.name}'")
+
+        lowerFunctionCall(
+            selectorCall,
+            out,
+            symbols,
+            context,
+            FunctionResolver.Context.Selector
+        )
+
+        val frame = context.beginSelectionFrame(type)
+        val frameList = Ir.Variable(frame.listVarName, VariableScope.LOCAL)
+        val frameUuid = Ir.Variable(frame.uuidVarName, VariableScope.LOCAL)
+        outSnapshotSelectedUuids(out, frameList)
+        emitSelectionReset(out)
+
+        out += Ir.RepeatAction(
+            actionName = "ForEach",
+            args = listOf(frameUuid, frameList),
+            tags = listOf(Ir.Tag(26, "Allow List Changes", "False (copy list)"))
+        )
+        out += Ir.OpenBracket
+        emitSelectByUuid(out, type, frameUuid)
+
+        context.selectionStack.addLast(type)
+        for (inner in stmt.body.statements) {
+            lowerStatement(inner, symbols, out, context)
+        }
+        context.selectionStack.removeLast()
+
+        emitSelectionReset(out)
+        out += Ir.CloseBracket
+
+        context.endSelectionFrame()
+        emitSelectionRestore(out, context)
+    }
+
     private fun emitSelectionReset(out: MutableList<Ir.Instr>) {
         out.add(
             Ir.SelectObject(
@@ -752,6 +801,45 @@ class IrLowerer(
                 args = emptyList(),
                 tags = emptyList()
             )
+        )
+    }
+
+    private fun outSnapshotSelectedUuids(out: MutableList<Ir.Instr>, target: Ir.Variable) {
+        out += Ir.SetVariableAction(
+            actionName = "=",
+            args = listOf(target, Ir.GameValue("Selection Target UUIDs", null)),
+            tags = emptyList()
+        )
+    }
+
+    private fun emitSelectionRestore(out: MutableList<Ir.Instr>, context: LoweringContext) {
+        val activeFrame = context.activeSelectionFrame()
+        if (activeFrame != null) {
+            emitSelectByUuid(
+                out,
+                activeFrame.type,
+                Ir.Variable(activeFrame.uuidVarName, VariableScope.LOCAL)
+            )
+            return
+        }
+
+        val entrySelection = context.functionEntrySelection ?: return
+        emitSelectByUuid(out, entrySelection.type, entrySelection.value)
+    }
+
+    private fun emitSelectByUuid(
+        out: MutableList<Ir.Instr>,
+        type: LoweringContext.SelectionType,
+        uuid: Ir.Value
+    ) {
+        out += Ir.SelectObject(
+            actionName = when (type) {
+                LoweringContext.SelectionType.Player -> "PlayerName"
+                LoweringContext.SelectionType.Entity -> "EntityUUID"
+            },
+            subAction = null,
+            args = listOf(uuid),
+            tags = emptyList()
         )
     }
 
@@ -973,7 +1061,11 @@ class IrLowerer(
         return symbol?.simpleName?.let { Ast.Type(it) }
     }
 
-    private fun expressionTypeQualifiedName(expr: Ast.Expr, symbols: SymbolTable): String? {
+    private fun expressionTypeQualifiedName(
+        expr: Ast.Expr,
+        symbols: SymbolTable,
+        context: LoweringContext? = null
+    ): String? {
         return when (expr) {
             is Ast.IdentifierExpr -> runCatching { symbols.resolve(expr.name).typeQualifiedName }.getOrNull()
                 ?: (requireTypeTable().resolve(expr.name, astProgram) as? SingletonSymbol)?.qualifiedName
@@ -983,7 +1075,7 @@ class IrLowerer(
                     ?.let { requireTypeTable().resolve(it.name, astProgram) as? EnumSymbol }
                 if (staticEnum != null) return staticEnum.qualifiedName
 
-                val receiverTypeName = expressionTypeQualifiedName(expr.receiver, symbols) ?: return null
+                val receiverTypeName = expressionTypeQualifiedName(expr.receiver, symbols, context) ?: return null
                 val receiverDecl = (requireTypeTable().resolveQualified(receiverTypeName) as? DictSymbol)?.decl ?: return null
                 val field = receiverDecl.fields.firstOrNull { it.name == expr.field } ?: return null
                 resolveTypeQualifiedName(field.type)
@@ -992,7 +1084,7 @@ class IrLowerer(
                 val symbol = functionResolver.resolve(
                     expr.name,
                     astProgram,
-                    functionResolver.contextForSelection(null)
+                    functionResolver.contextForSelection(context?.currentSelection())
                 )
                 symbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
             }
@@ -1000,7 +1092,7 @@ class IrLowerer(
                 if ((expr.name == "name" || expr.name == "ordinal") && expressionEnumSymbol(expr, symbols) != null) {
                     return null
                 }
-                val symbol = resolveMemberCall(expr, symbols).symbol
+                val symbol = resolveMemberCall(expr, symbols, context).symbol
                 symbol.decl.returnType?.let { resolveTypeQualifiedName(it) }
             }
             is Ast.TypeExpr -> resolveTypeQualifiedName(expr.type)

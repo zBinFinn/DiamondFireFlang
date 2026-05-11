@@ -1,6 +1,7 @@
 package com.zbinfinn.emitter
 
 import com.zbinfinn.ir.Ir
+import com.zbinfinn.common.VariableScope
 
 class DfEmitter {
     fun emit(program: Ir.Program): String {
@@ -109,7 +110,7 @@ class DfEmitter {
             is Ir.StringValue -> """s"${escape(value.value)}""""
             is Ir.StyledText -> """t"${escape(value.value)}""""
             is Ir.NumberValue -> "n\"${value.value}\""
-            is Ir.Variable -> "vLI\"${value.name}\"" // TODO: not just line variables
+            is Ir.Variable -> "${emitVariableScope(value.scope)}\"${value.name}\""
             is Ir.Parameter -> "${if (value.mutable) "pm" else "p"}\"${value.name}\""
             is Ir.SingletonValue -> error("Singleton value '${value.qualifiedName}' has no DiamondFire representation")
             is Ir.GameValue -> value.target
@@ -120,6 +121,15 @@ class DfEmitter {
 
     private fun emitTag(tag: Ir.Tag): String {
         return "${tag.slot} \"${tag.name}\" \"${tag.selectedOption}\""
+    }
+
+    private fun emitVariableScope(scope: VariableScope): String {
+        return when (scope) {
+            VariableScope.SAVE -> "vS"
+            VariableScope.GLOBAL -> "vG"
+            VariableScope.LOCAL -> "vL"
+            VariableScope.LINE -> "vLI"
+        }
     }
 
     private fun escape(text: String): String {
